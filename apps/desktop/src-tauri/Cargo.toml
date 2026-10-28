@@ -1,0 +1,15 @@
+[package]
+name = "veneer-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+veneer-ipc = { path = "../../../crates/ipc" }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

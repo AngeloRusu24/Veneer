@@ -1,0 +1,13 @@
+# Rust
+/target/
+**/target/
+
+# Tauri and frontend
+node_modules/
+apps/desktop/build/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Local tooling
+.DS_Store
+*.log
