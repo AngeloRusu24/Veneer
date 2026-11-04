@@ -3661,6 +3661,10 @@ dependencies = [
 [[package]]
 name = "veneer-windows-platform"
 version = "0.1.0"
+dependencies = [
+ "veneer-theme-schema",
+ "windows",
+]
 
 [[package]]
 name = "version-compare"
