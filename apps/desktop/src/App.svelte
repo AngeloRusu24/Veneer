@@ -52,6 +52,20 @@
   let themeMessage = $state<{ kind: "ok" | "error"; text: string } | null>(null);
   let report = $state<ApplyReport | null>(null);
   let busy = $state(false);
+  let autostart = $state(false);
+
+  onMount(async () => {
+    try {
+      autostart = await invoke<boolean>("get_autostart");
+    } catch {
+      autostart = false;
+    }
+  });
+
+  const toggleAutostart = () =>
+    run(async () => {
+      autostart = await invoke<boolean>("set_autostart", { enabled: !autostart });
+    });
 
   function describe(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
@@ -210,6 +224,16 @@
           </ul>
         {/if}
       </section>
+
+      <label class="autostart">
+        <input
+          type="checkbox"
+          checked={autostart}
+          disabled={busy}
+          onchange={toggleAutostart}
+        />
+        Avvia Veneer con Windows (ridotto nella tray)
+      </label>
 
       <div class="section-heading">
         <div>

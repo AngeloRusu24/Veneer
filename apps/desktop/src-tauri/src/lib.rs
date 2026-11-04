@@ -1,15 +1,81 @@
 use std::sync::Mutex;
 
-use tauri::{Manager, RunEvent, State, WebviewWindow};
+use tauri::{
+    AppHandle, Manager, RunEvent, State, WebviewWindow, WindowEvent,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 use veneer_core::{ApplyReport, Controller, RevertReport, ThemeSummary};
 use veneer_ipc::{IntegrationStage, PROTOCOL_VERSION, RuntimeStatus};
 use veneer_rule_engine::WindowContext;
 use veneer_windows_platform::{
+    autostart::Autostart,
     dwm::DwmBackend,
     os::{build_number, local_time_of_day},
 };
 
 type SharedController = Mutex<Controller<DwmBackend>>;
+
+const AUTOSTART_NAME: &str = "Veneer";
+const MINIMIZED_FLAG: &str = "--minimized";
+
+#[tauri::command]
+fn get_autostart() -> bool {
+    Autostart::new(AUTOSTART_NAME).is_enabled()
+}
+
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<bool, String> {
+    let entry = Autostart::new(AUTOSTART_NAME);
+    if enabled {
+        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+        entry
+            .enable(&format!("\"{}\" {MINIMIZED_FLAG}", exe.display()))
+            .map_err(|error| error.to_string())?;
+    } else {
+        entry.disable().map_err(|error| error.to_string())?;
+    }
+    Ok(entry.is_enabled())
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Apri Veneer", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Esci", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    let mut tray = TrayIconBuilder::new()
+        .tooltip("Veneer")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
 
 #[tauri::command]
 fn get_runtime_status() -> RuntimeStatus {
@@ -96,13 +162,28 @@ pub fn run() {
                     eprintln!("logging disabled: {error}");
                 }
             }
+            setup_tray(app)?;
+            if std::env::args().any(|arg| arg == MINIMIZED_FLAG)
+                && let Some(window) = app.get_webview_window("main")
+            {
+                let _ = window.hide();
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing the window keeps Veneer in the tray; "Esci" really quits.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             get_runtime_status,
             validate_theme,
             apply_theme,
-            revert_theme
+            revert_theme,
+            get_autostart,
+            set_autostart
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Veneer desktop application");

@@ -8,6 +8,8 @@ pub mod backend;
 pub mod plan;
 
 #[cfg(windows)]
+pub mod autostart;
+#[cfg(windows)]
 pub mod dwm;
 #[cfg(windows)]
 pub mod os;

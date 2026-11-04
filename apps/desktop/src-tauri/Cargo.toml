@@ -8,7 +8,7 @@ rust-version.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 veneer-core = { path = "../../../crates/core" }
 veneer-diagnostics = { path = "../../../crates/diagnostics" }
 veneer-ipc = { path = "../../../crates/ipc" }
