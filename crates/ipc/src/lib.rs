@@ -21,6 +21,7 @@ pub struct RuntimeStatus {
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationStage {
     Scaffold,
+    WindowFrames,
 }
 
 #[cfg(test)]
@@ -48,5 +49,11 @@ mod tests {
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains(r#""appVersion":"0.1.0""#));
         assert!(json.contains(r#""protocolVersion":1"#));
+    }
+
+    #[test]
+    fn integration_stage_names_are_stable() {
+        let json = serde_json::to_string(&IntegrationStage::WindowFrames).unwrap();
+        assert_eq!(json, r#""window_frames""#);
     }
 }

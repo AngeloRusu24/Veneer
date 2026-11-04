@@ -4,6 +4,7 @@
 //! always be undone with [`AppliedFrame::restore`]. A failing attribute never
 //! stops the others: failures are collected and returned to the caller.
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::size_of;
 
@@ -12,14 +13,36 @@ use windows::Win32::Graphics::Dwm::{
     DWMWINDOWATTRIBUTE, DwmGetWindowAttribute, DwmSetWindowAttribute,
 };
 
-use crate::plan::{COLOR_DEFAULT, DwmAttribute, Operation, Plan};
+use crate::backend::{ApplyOutcome, FrameBackend};
+use crate::plan::{COLOR_DEFAULT, DwmAttribute, Failure, Operation, Plan};
 
-/// An attribute operation that Windows rejected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Failure {
-    pub attribute: DwmAttribute,
-    /// The `HRESULT` returned by DWM.
-    pub hresult: i32,
+/// Applies plans to real windows and remembers what it overwrote, per window.
+#[derive(Debug, Default)]
+pub struct DwmBackend {
+    frames: HashMap<isize, AppliedFrame>,
+}
+
+impl FrameBackend for DwmBackend {
+    fn apply(&mut self, window: isize, plan: &Plan) -> ApplyOutcome {
+        // Never snapshot an already-styled window: undo first, so the stored
+        // "previous" values are always the original ones.
+        self.restore(window);
+        let frame = apply_plan(window, plan);
+        let outcome = ApplyOutcome {
+            applied: frame.applied.clone(),
+            failed: frame.failed.clone(),
+        };
+        if !frame.applied.is_empty() {
+            self.frames.insert(window, frame);
+        }
+        outcome
+    }
+
+    fn restore(&mut self, window: isize) -> Vec<Failure> {
+        self.frames
+            .remove(&window)
+            .map_or_else(Vec::new, |frame| frame.restore(window))
+    }
 }
 
 /// The result of applying a [`Plan`] to one window.

@@ -5,11 +5,95 @@
   type RuntimeStatus = {
     appVersion: string;
     platform: string;
-    integration: "scaffold";
+    integration: "scaffold" | "window_frames";
   };
 
   let status = $state<RuntimeStatus | null>(null);
   let error = $state<string | null>(null);
+
+  type ApplyReport = {
+    themeId: string;
+    matchedRules: string[];
+    applied: string[];
+    skipped: { property: string; requiredBuild: number }[];
+    failed: { property: string; hresult: number }[];
+    warnings: string[];
+  };
+  type ThemeSummary = { id: string; name: string; ruleCount: number };
+
+  const exampleTheme = JSON.stringify(
+    {
+      schemaVersion: 1,
+      id: "midnight-work",
+      name: "Midnight Work",
+      unsupported: "warn",
+      rules: [
+        {
+          id: "veneer-window",
+          when: { processName: "veneer-desktop.exe" },
+          apply: {
+            windowFrame: {
+              colorMode: "dark",
+              borderColor: "#52627A",
+              captionColor: "#101116",
+              textColor: "#E8EAF0",
+              cornerPreference: "round",
+              backdrop: "mica",
+            },
+          },
+        },
+      ],
+    },
+    null,
+    2,
+  );
+
+  let themeText = $state(exampleTheme);
+  let themeMessage = $state<{ kind: "ok" | "error"; text: string } | null>(null);
+  let report = $state<ApplyReport | null>(null);
+  let busy = $state(false);
+
+  function describe(cause: unknown): string {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+
+  async function run(action: () => Promise<void>) {
+    busy = true;
+    try {
+      await action();
+    } catch (cause) {
+      report = null;
+      themeMessage = { kind: "error", text: describe(cause) };
+    } finally {
+      busy = false;
+    }
+  }
+
+  const validate = () =>
+    run(async () => {
+      const summary = await invoke<ThemeSummary>("validate_theme", { theme: themeText });
+      report = null;
+      themeMessage = {
+        kind: "ok",
+        text: `Tema valido: ${summary.name} (${summary.ruleCount} regole)`,
+      };
+    });
+
+  const apply = () =>
+    run(async () => {
+      report = await invoke<ApplyReport>("apply_theme", { theme: themeText });
+      themeMessage = { kind: "ok", text: "Tema applicato a questa finestra" };
+    });
+
+  const revert = () =>
+    run(async () => {
+      const result = await invoke<{ wasStyled: boolean }>("revert_theme");
+      report = null;
+      themeMessage = {
+        kind: "ok",
+        text: result.wasStyled ? "Stile originale ripristinato" : "Nessuna modifica da annullare",
+      };
+    });
 
   onMount(async () => {
     try {
@@ -41,10 +125,9 @@
         <span class="nav-icon">◈</span>
         Panoramica
       </a>
-      <a class="nav-item disabled" href="#themes" aria-disabled="true">
+      <a class="nav-item" href="#themes">
         <span class="nav-icon">◧</span>
         Temi
-        <span class="nav-soon">PRESTO</span>
       </a>
       <a class="nav-item disabled" href="#rules" aria-disabled="true">
         <span class="nav-icon">⌘</span>
@@ -85,6 +168,47 @@
           </p>
         </div>
         <span class="badge">SCAFFOLD</span>
+      </section>
+
+      <section class="panel" id="themes" aria-label="Anteprima tema">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ANTEPRIMA</p>
+            <h2>Prova un tema</h2>
+          </div>
+          <span class="muted">Si applica solo alla finestra di Veneer</span>
+        </div>
+        <textarea
+          class="theme-input"
+          spellcheck="false"
+          aria-label="Tema JSON"
+          bind:value={themeText}
+        ></textarea>
+        <div class="actions">
+          <button type="button" onclick={validate} disabled={busy}>Valida</button>
+          <button type="button" class="primary" onclick={apply} disabled={busy}>Applica</button>
+          <button type="button" onclick={revert} disabled={busy}>Annulla</button>
+        </div>
+        {#if themeMessage}
+          <p class={themeMessage.kind === "error" ? "error" : "ok"} role="status">
+            {themeMessage.text}
+          </p>
+        {/if}
+        {#if report}
+          <ul class="report">
+            <li>Regole attive: {report.matchedRules.join(", ") || "nessuna"}</li>
+            <li>Applicate: {report.applied.join(", ") || "nessuna"}</li>
+            {#each report.skipped as item}
+              <li class="warn">Saltata {item.property}: richiede build {item.requiredBuild}</li>
+            {/each}
+            {#each report.failed as item}
+              <li class="error">Rifiutata da Windows: {item.property} ({item.hresult})</li>
+            {/each}
+            {#each report.warnings as warning}
+              <li class="warn">{warning}</li>
+            {/each}
+          </ul>
+        {/if}
       </section>
 
       <div class="section-heading">

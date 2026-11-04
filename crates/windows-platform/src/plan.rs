@@ -31,6 +31,18 @@ impl DwmAttribute {
         self as i32
     }
 
+    /// Stable, human-readable name used in logs and in the UI.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::UseImmersiveDarkMode => "colorMode",
+            Self::WindowCornerPreference => "cornerPreference",
+            Self::BorderColor => "borderColor",
+            Self::CaptionColor => "captionColor",
+            Self::TextColor => "textColor",
+            Self::SystemBackdropType => "backdrop",
+        }
+    }
+
     /// Minimum Windows build on which the attribute is documented to work.
     pub const fn min_build(self) -> u32 {
         match self {
@@ -49,6 +61,14 @@ impl DwmAttribute {
 pub struct Operation {
     pub attribute: DwmAttribute,
     pub value: u32,
+}
+
+/// An attribute operation that Windows rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Failure {
+    pub attribute: DwmAttribute,
+    /// The `HRESULT` returned by DWM.
+    pub hresult: i32,
 }
 
 /// A requested property that cannot be applied on this Windows build.

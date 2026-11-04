@@ -3748,12 +3748,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "veneer-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tracing",
+ "veneer-rule-engine",
+ "veneer-theme-schema",
+ "veneer-windows-platform",
+]
+
+[[package]]
 name = "veneer-desktop"
 version = "0.1.0"
 dependencies = [
  "tauri",
  "tauri-build",
+ "tracing",
+ "veneer-core",
+ "veneer-diagnostics",
  "veneer-ipc",
+ "veneer-rule-engine",
+ "veneer-windows-platform",
 ]
 
 [[package]]

@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn init_file_creates_directories_and_rejects_unwritable_paths() {
+    fn init_file_rejects_unwritable_paths() {
         let dir = tempfile::TempDir::new().unwrap();
         // A directory in place of the log file cannot be opened for writing.
         let blocked = dir.path().join("blocked");

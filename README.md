@@ -5,9 +5,9 @@ uses documented Microsoft APIs only. Features that Windows does not expose
 through a supported API will be identified as unavailable rather than
 implemented with undocumented hooks or process injection.
 
-> **Early development:** this repository currently contains only the initial
-> application and Rust workspace scaffold. It does not yet change Windows
-> settings or style third-party application windows.
+> **Early development:** Veneer can apply a theme's window-frame rules (DWM)
+> to its own window, with one-click revert. It does not yet change other
+> Windows settings or style third-party application windows.
 
 ## Project layout
 
@@ -25,6 +25,9 @@ implemented with undocumented hooks or process injection.
 - `crates/windows-platform` — Windows build detection and DWM window-frame
   styling. Planning (`plan`) is portable; applying (`dwm`) is Windows-only and
   records previous values so changes can be restored.
+- `crates/core` — `Controller`: parse → check build/policy → resolve rules →
+  apply, all checks before the first write; generic over a `FrameBackend` so it
+  is tested without a real window.
 
 ## Development
 

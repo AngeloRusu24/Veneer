@@ -2,6 +2,7 @@
 members = [
     "apps/desktop/src-tauri",
     "crates/diagnostics",
+    "crates/core",
     "crates/ipc",
     "crates/rule-engine",
     "crates/state-journal",

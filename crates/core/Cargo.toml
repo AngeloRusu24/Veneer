@@ -1,0 +1,15 @@
+[package]
+name = "veneer-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+tracing = "0.1"
+veneer-rule-engine = { path = "../rule-engine" }
+veneer-theme-schema = { path = "../theme-schema" }
+veneer-windows-platform = { path = "../windows-platform" }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -70,6 +70,15 @@ h1 { margin-bottom: 13px; font-family: "Segoe UI", sans-serif; font-size: clamp(
 .runtime { display: flex; justify-content: space-between; margin-top: 31px; padding-top: 13px; border-top: 1px solid #25262e; color: #858691; font-size: 9px; }
 .runtime .status-dot { margin-right: 6px; }
 .error { color: #f08a8a; }
+.ok { color: #8fd6a4; }
+.warn { color: #e6c07b; }
+.panel { margin: 28px 0; }
+.theme-input { width: 100%; min-height: 220px; box-sizing: border-box; padding: 12px; border: 1px solid #2c2c36; border-radius: 8px; background: #14141a; color: #e8eaf0; font: 12px/1.5 Consolas, monospace; resize: vertical; }
+.actions { display: flex; gap: 8px; margin: 12px 0; }
+.actions button { padding: 8px 14px; border: 1px solid #3b3650; border-radius: 6px; background: #1c1c24; color: #e8eaf0; cursor: pointer; }
+.actions button.primary { background: #5b4bd6; border-color: #5b4bd6; }
+.actions button:disabled { opacity: .5; cursor: default; }
+.report { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
 
 @media (max-width: 850px) {
   .sidebar { width: 190px; flex-basis: 190px; }

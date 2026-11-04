@@ -4,6 +4,7 @@
 //! rest of Veneer stays pure and testable. The decision of *what* to apply is
 //! in [`plan`] (portable); the calls that *do* it are in `dwm` (Windows only).
 
+pub mod backend;
 pub mod plan;
 
 #[cfg(windows)]
