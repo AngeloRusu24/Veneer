@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use crate::backend::{MonitorWallpaper, WallpaperBackend};
+
 use windows::{
     Win32::{
         System::Com::{
@@ -14,14 +16,6 @@ use windows::{
 };
 
 pub type Error = windows::core::Error;
-
-/// Wallpaper of one monitor at capture time. `path` is empty when the monitor
-/// has no image (solid color or slideshow), in which case it is not restorable.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MonitorWallpaper {
-    pub monitor_id: String,
-    pub path: String,
-}
 
 fn api() -> Result<IDesktopWallpaper, Error> {
     // S_FALSE / RPC_E_CHANGED_MODE only mean COM is already initialised on this
@@ -89,6 +83,27 @@ pub fn restore(snapshot: &[MonitorWallpaper]) -> Vec<(String, Error)> {
                 .map(|error| (entry.monitor_id.clone(), error))
         })
         .collect()
+}
+
+/// [`WallpaperBackend`] backed by `IDesktopWallpaper`.
+#[derive(Debug, Default)]
+pub struct DesktopWallpaperBackend;
+
+impl WallpaperBackend for DesktopWallpaperBackend {
+    fn capture(&mut self) -> Result<Vec<MonitorWallpaper>, String> {
+        capture().map_err(|error| error.to_string())
+    }
+
+    fn set_all(&mut self, image: &Path) -> Result<(), String> {
+        set(None, image).map_err(|error| error.to_string())
+    }
+
+    fn restore(&mut self, snapshot: &[MonitorWallpaper]) -> Vec<String> {
+        restore(snapshot)
+            .into_iter()
+            .map(|(monitor, error)| format!("{monitor}: {error}"))
+            .collect()
+    }
 }
 
 #[cfg(test)]

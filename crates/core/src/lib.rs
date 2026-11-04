@@ -6,6 +6,8 @@
 
 use std::{collections::HashSet, fmt};
 
+pub mod wallpaper;
+
 use serde::Serialize;
 use veneer_rule_engine::{WindowContext, resolve};
 use veneer_theme_schema::{Theme, ThemeError, TimeOfDay, UnsupportedPolicy, parse_theme};

@@ -25,8 +25,11 @@ implemented with undocumented hooks or process injection.
 - `crates/windows-platform` — Windows build detection and DWM window-frame
   styling. Planning (`plan`) is portable; applying (`dwm`) is Windows-only and
   records previous values so changes can be restored.
+- `crates/core::wallpaper` — journaled wallpaper changes: the original is
+  written to disk before the change and restored on revert, on exit, or at the
+  next start after a crash.
 - `windows-platform::wallpaper` — static wallpaper per monitor via
-  `IDesktopWallpaper`, with capture/restore (not yet exposed in the UI).
+  `IDesktopWallpaper`, with capture/restore.
 - `windows-platform::autostart` — per-user autostart via the HKCU Run key.
 - `crates/core` — `Controller`: parse → check build/policy → resolve rules →
   apply, all checks before the first write; generic over a `FrameBackend` so it
@@ -75,6 +78,10 @@ process). Results are not yet published; no idle numbers should be assumed.
 
 ## Current limitations
 
+- Wallpaper: the image is set on all monitors (not per theme yet), is reverted
+  on "Esci", and is refused when any monitor currently shows a solid color or
+  slideshow, because that state cannot be restored. Crash recovery is covered
+  by tests with a fake backend, not yet by killing the real app.
 - Themes apply end to end only to Veneer's own window (one-click apply/revert
   in the preview panel). Other applications' windows are not styled.
 - Closing the window hides it to the tray; use the tray's "Esci" to quit (this

@@ -53,6 +53,37 @@
   let report = $state<ApplyReport | null>(null);
   let busy = $state(false);
   let autostart = $state(false);
+  let wallpaperPath = $state("");
+  let wallpaperMessage = $state<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const setWallpaper = async () => {
+    busy = true;
+    try {
+      await invoke("set_wallpaper", { path: wallpaperPath });
+      wallpaperMessage = { kind: "ok", text: "Sfondo applicato; l'originale è salvato su disco" };
+    } catch (cause) {
+      wallpaperMessage = { kind: "error", text: describe(cause) };
+    } finally {
+      busy = false;
+    }
+  };
+
+  const revertWallpaper = async () => {
+    busy = true;
+    try {
+      const result = await invoke<{ wasChanged: boolean; failed: string[] }>("revert_wallpaper");
+      wallpaperMessage = result.failed.length
+        ? { kind: "error", text: `Ripristino incompleto: ${result.failed.join("; ")}` }
+        : {
+            kind: "ok",
+            text: result.wasChanged ? "Sfondo originale ripristinato" : "Nessuna modifica da annullare",
+          };
+    } catch (cause) {
+      wallpaperMessage = { kind: "error", text: describe(cause) };
+    } finally {
+      busy = false;
+    }
+  };
 
   onMount(async () => {
     try {
@@ -222,6 +253,34 @@
               <li class="warn">{warning}</li>
             {/each}
           </ul>
+        {/if}
+      </section>
+
+      <section class="panel" aria-label="Sfondo">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SFONDO</p>
+            <h2>Sfondo statico</h2>
+          </div>
+          <span class="muted">Tutti i monitor · annullabile, anche dopo un crash</span>
+        </div>
+        <input
+          class="path-input"
+          type="text"
+          placeholder="C:\Immagini\sfondo.jpg"
+          aria-label="Percorso immagine"
+          bind:value={wallpaperPath}
+        />
+        <div class="actions">
+          <button type="button" class="primary" onclick={setWallpaper} disabled={busy || !wallpaperPath.trim()}>
+            Imposta
+          </button>
+          <button type="button" onclick={revertWallpaper} disabled={busy}>Ripristina</button>
+        </div>
+        {#if wallpaperMessage}
+          <p class={wallpaperMessage.kind === "error" ? "error" : "ok"} role="status">
+            {wallpaperMessage.text}
+          </p>
         {/if}
       </section>
 

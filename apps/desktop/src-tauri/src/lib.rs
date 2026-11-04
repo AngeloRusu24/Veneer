@@ -5,16 +5,77 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
-use veneer_core::{ApplyReport, Controller, RevertReport, ThemeSummary};
+use veneer_core::{
+    ApplyReport, Controller, RevertReport, ThemeSummary,
+    wallpaper::{WallpaperController, WallpaperRevert},
+};
 use veneer_ipc::{IntegrationStage, PROTOCOL_VERSION, RuntimeStatus};
 use veneer_rule_engine::WindowContext;
+use veneer_state_journal::Journal;
 use veneer_windows_platform::{
     autostart::Autostart,
     dwm::DwmBackend,
     os::{build_number, local_time_of_day},
+    wallpaper::DesktopWallpaperBackend,
 };
 
 type SharedController = Mutex<Controller<DwmBackend>>;
+type SharedWallpaper = Mutex<Option<WallpaperController<DesktopWallpaperBackend>>>;
+
+/// Opens the journal and restores anything a crashed run left behind. If the
+/// journal cannot be opened, wallpaper changes are disabled rather than made
+/// without a way back.
+fn open_wallpaper(app: &tauri::App) -> SharedWallpaper {
+    let path = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|dir| std::fs::create_dir_all(&dir).ok().map(|_| dir))
+        .map(|dir| dir.join("journal.json"));
+    let Some(path) = path else {
+        tracing::error!("no data directory: wallpaper changes disabled");
+        return Mutex::new(None);
+    };
+    match Journal::open(path) {
+        Ok((journal, opened)) => {
+            tracing::info!(?opened, "journal opened");
+            let mut controller = WallpaperController::new(DesktopWallpaperBackend, journal);
+            match controller.recover() {
+                Ok(report) => tracing::info!(?report, "recovery finished"),
+                Err(error) => tracing::error!(%error, "recovery failed"),
+            }
+            Mutex::new(Some(controller))
+        }
+        Err(error) => {
+            tracing::error!(%error, "journal unavailable: wallpaper changes disabled");
+            Mutex::new(None)
+        }
+    }
+}
+
+#[tauri::command]
+fn set_wallpaper(wallpaper: State<'_, SharedWallpaper>, path: String) -> Result<(), String> {
+    let mut guard = wallpaper
+        .lock()
+        .map_err(|_| "stato interno non disponibile")?;
+    let controller = guard
+        .as_mut()
+        .ok_or("sfondo disabilitato: journal non disponibile")?;
+    controller
+        .set(std::path::Path::new(path.trim()))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn revert_wallpaper(wallpaper: State<'_, SharedWallpaper>) -> Result<WallpaperRevert, String> {
+    let mut guard = wallpaper
+        .lock()
+        .map_err(|_| "stato interno non disponibile")?;
+    let controller = guard
+        .as_mut()
+        .ok_or("sfondo disabilitato: journal non disponibile")?;
+    Ok(controller.revert())
+}
 
 const AUTOSTART_NAME: &str = "Veneer";
 const MINIMIZED_FLAG: &str = "--minimized";
@@ -162,6 +223,7 @@ pub fn run() {
                     eprintln!("logging disabled: {error}");
                 }
             }
+            app.manage(open_wallpaper(app));
             setup_tray(app)?;
             if std::env::args().any(|arg| arg == MINIMIZED_FLAG)
                 && let Some(window) = app.get_webview_window("main")
@@ -183,17 +245,26 @@ pub fn run() {
             apply_theme,
             revert_theme,
             get_autostart,
-            set_autostart
+            set_autostart,
+            set_wallpaper,
+            revert_wallpaper
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Veneer desktop application");
 
     app.run(|handle, event| {
-        if let RunEvent::Exit = event
-            && let Some(controller) = handle.try_state::<SharedController>()
-            && let Ok(mut controller) = controller.lock()
-        {
-            controller.revert_all();
+        if let RunEvent::Exit = event {
+            if let Some(controller) = handle.try_state::<SharedController>()
+                && let Ok(mut controller) = controller.lock()
+            {
+                controller.revert_all();
+            }
+            if let Some(wallpaper) = handle.try_state::<SharedWallpaper>()
+                && let Ok(mut wallpaper) = wallpaper.lock()
+                && let Some(wallpaper) = wallpaper.as_mut()
+            {
+                wallpaper.revert();
+            }
         }
     });
 }

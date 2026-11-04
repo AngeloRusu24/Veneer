@@ -73,6 +73,7 @@ h1 { margin-bottom: 13px; font-family: "Segoe UI", sans-serif; font-size: clamp(
 .ok { color: #8fd6a4; }
 .warn { color: #e6c07b; }
 .panel { margin: 28px 0; }
+.path-input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #2c2c36; border-radius: 8px; background: #14141a; color: #e8eaf0; font: 12px Consolas, monospace; }
 .autostart { display: flex; align-items: center; gap: 8px; margin: 0 0 28px; font-size: 13px; color: #c9ccd6; }
 .theme-input { width: 100%; min-height: 220px; box-sizing: border-box; padding: 12px; border: 1px solid #2c2c36; border-radius: 8px; background: #14141a; color: #e8eaf0; font: 12px/1.5 Consolas, monospace; resize: vertical; }
 .actions { display: flex; gap: 8px; margin: 12px 0; }

@@ -6,10 +6,12 @@ rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 tracing = "0.1"
+veneer-state-journal = { path = "../state-journal" }
 veneer-rule-engine = { path = "../rule-engine" }
 veneer-theme-schema = { path = "../theme-schema" }
 veneer-windows-platform = { path = "../windows-platform" }
 
 [dev-dependencies]
-serde_json.workspace = true
+tempfile = "3"

@@ -125,16 +125,19 @@ impl Drop for OwnedKey {
 mod tests {
     use super::*;
 
-    fn isolated() -> Autostart {
+    fn isolated(test: &str) -> Autostart {
         Autostart::in_key(
-            &format!(r"Software\VeneerTests\autostart-{}", std::process::id()),
+            &format!(
+                r"Software\VeneerTests\autostart-{}-{test}",
+                std::process::id()
+            ),
             "Veneer",
         )
     }
 
     #[test]
     fn enable_disable_roundtrip() {
-        let entry = isolated();
+        let entry = isolated("roundtrip");
         assert!(!entry.is_enabled());
         entry
             .enable(r#""C:\Veneer\veneer.exe" --minimized"#)
@@ -146,6 +149,6 @@ mod tests {
 
     #[test]
     fn disabling_a_missing_entry_is_ok() {
-        isolated().disable().unwrap();
+        isolated("missing").disable().unwrap();
     }
 }

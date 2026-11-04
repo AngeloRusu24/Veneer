@@ -3753,8 +3753,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "veneer-rule-engine",
+ "veneer-state-journal",
  "veneer-theme-schema",
  "veneer-windows-platform",
 ]
@@ -3770,6 +3772,7 @@ dependencies = [
  "veneer-diagnostics",
  "veneer-ipc",
  "veneer-rule-engine",
+ "veneer-state-journal",
  "veneer-windows-platform",
 ]
 
