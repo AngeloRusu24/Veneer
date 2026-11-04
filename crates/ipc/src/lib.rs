@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn request_uses_a_stable_tagged_wire_shape() {
         let json = serde_json::to_string(&Request::GetRuntimeStatus).unwrap();
-        assert_eq!(json, r#"{"type":"get_runtime_status","payload":null}"#);
+        assert_eq!(json, r#"{"type":"get_runtime_status"}"#);
 
         let decoded: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, Request::GetRuntimeStatus);

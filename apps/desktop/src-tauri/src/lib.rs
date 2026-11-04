@@ -1,4 +1,4 @@
-use veneer_ipc::{IntegrationStage, RuntimeStatus, PROTOCOL_VERSION};
+use veneer_ipc::{IntegrationStage, PROTOCOL_VERSION, RuntimeStatus};
 
 #[tauri::command]
 fn get_runtime_status() -> RuntimeStatus {
