@@ -14,3 +14,5 @@ Status: accepted (verified against Microsoft's public API surface; re-check per 
 ## Consequences
 - Every global change must go through `state-journal` (capture before change).
 - Anything depending on unspecified registry values is labelled best effort.
+
+Update (M8c): the wallpaper is a theme-level field (wallpaper.path), not a rule property: it is global, while rules depend on a window's context. Applying a theme replaces the previous one completely, wallpaper included.

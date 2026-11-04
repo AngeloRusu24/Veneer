@@ -25,6 +25,8 @@ implemented with undocumented hooks or process injection.
 - `crates/windows-platform` — Windows build detection and DWM window-frame
   styling. Planning (`plan`) is portable; applying (`dwm`) is Windows-only and
   records previous values so changes can be restored.
+- `crates/core::applier` — `ThemeApplier`: applies a theme's window frame and
+  wallpaper together, undoes both.
 - `crates/core::wallpaper` — journaled wallpaper changes: the original is
   written to disk before the change and restored on revert, on exit, or at the
   next start after a crash.
@@ -78,10 +80,14 @@ process). Results are not yet published; no idle numbers should be assumed.
 
 ## Current limitations
 
-- Wallpaper: the image is set on all monitors (not per theme yet), is reverted
-  on "Esci", and is refused when any monitor currently shows a solid color or
-  slideshow, because that state cannot be restored. Crash recovery is covered
-  by tests with a fake backend, not yet by killing the real app.
+- Wallpaper: set from the theme's optional `"wallpaper": {"path": "C:\\...\\img.jpg"}`
+  (absolute path; jpg/jpeg/png/bmp/tif/tiff; no gif/video). It is global, not
+  per rule, set on all monitors, replaced/undone when another theme is applied
+  or on "Annulla"/"Esci", and refused when any monitor currently shows a solid
+  color or slideshow, because that state cannot be restored. Policy `warn`
+  keeps the frame styled if the wallpaper fails; `error` rolls everything
+  back. Crash recovery is covered by tests with a fake backend, not yet by
+  killing the real app.
 - Themes apply end to end only to Veneer's own window (one-click apply/revert
   in the preview panel). Other applications' windows are not styled.
 - Closing the window hides it to the tray; use the tray's "Esci" to quit (this

@@ -15,6 +15,16 @@ pub struct Theme {
     pub unsupported: UnsupportedPolicy,
     #[serde(default)]
     pub rules: Vec<Rule>,
+    /// Global (not per-window): applied when the theme is applied, undone when
+    /// it is reverted or replaced by a theme without one.
+    pub wallpaper: Option<Wallpaper>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Wallpaper {
+    /// Absolute path of a static image, set on every monitor.
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

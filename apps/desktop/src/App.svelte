@@ -18,6 +18,7 @@
     skipped: { property: string; requiredBuild: number }[];
     failed: { property: string; hresult: number }[];
     warnings: string[];
+    wallpaper: "notRequested" | "applied" | "reverted" | "failed";
   };
   type ThemeSummary = { id: string; name: string; ruleCount: number };
 
@@ -53,38 +54,6 @@
   let report = $state<ApplyReport | null>(null);
   let busy = $state(false);
   let autostart = $state(false);
-  let wallpaperPath = $state("");
-  let wallpaperMessage = $state<{ kind: "ok" | "error"; text: string } | null>(null);
-
-  const setWallpaper = async () => {
-    busy = true;
-    try {
-      await invoke("set_wallpaper", { path: wallpaperPath });
-      wallpaperMessage = { kind: "ok", text: "Sfondo applicato; l'originale è salvato su disco" };
-    } catch (cause) {
-      wallpaperMessage = { kind: "error", text: describe(cause) };
-    } finally {
-      busy = false;
-    }
-  };
-
-  const revertWallpaper = async () => {
-    busy = true;
-    try {
-      const result = await invoke<{ wasChanged: boolean; failed: string[] }>("revert_wallpaper");
-      wallpaperMessage = result.failed.length
-        ? { kind: "error", text: `Ripristino incompleto: ${result.failed.join("; ")}` }
-        : {
-            kind: "ok",
-            text: result.wasChanged ? "Sfondo originale ripristinato" : "Nessuna modifica da annullare",
-          };
-    } catch (cause) {
-      wallpaperMessage = { kind: "error", text: describe(cause) };
-    } finally {
-      busy = false;
-    }
-  };
-
   onMount(async () => {
     try {
       autostart = await invoke<boolean>("get_autostart");
@@ -132,11 +101,18 @@
 
   const revert = () =>
     run(async () => {
-      const result = await invoke<{ wasStyled: boolean }>("revert_theme");
+      const result = await invoke<{
+        frame: { wasStyled: boolean };
+        wallpaper: { wasChanged: boolean; failed: string[] };
+      }>("revert_theme");
       report = null;
       themeMessage = {
-        kind: "ok",
-        text: result.wasStyled ? "Stile originale ripristinato" : "Nessuna modifica da annullare",
+        kind: result.wallpaper.failed.length ? "error" : "ok",
+        text: result.wallpaper.failed.length
+          ? `Sfondo non ripristinato: ${result.wallpaper.failed.join("; ")}`
+          : result.frame.wasStyled || result.wallpaper.wasChanged
+            ? "Stato originale ripristinato"
+            : "Nessuna modifica da annullare",
       };
     });
 
@@ -243,6 +219,13 @@
           <ul class="report">
             <li>Regole attive: {report.matchedRules.join(", ") || "nessuna"}</li>
             <li>Applicate: {report.applied.join(", ") || "nessuna"}</li>
+            {#if report.wallpaper === "applied"}
+              <li>Sfondo impostato</li>
+            {:else if report.wallpaper === "reverted"}
+              <li>Sfondo precedente ripristinato</li>
+            {:else if report.wallpaper === "failed"}
+              <li class="warn">Sfondo non impostato (vedi avvisi)</li>
+            {/if}
             {#each report.skipped as item}
               <li class="warn">Saltata {item.property}: richiede build {item.requiredBuild}</li>
             {/each}
@@ -253,34 +236,6 @@
               <li class="warn">{warning}</li>
             {/each}
           </ul>
-        {/if}
-      </section>
-
-      <section class="panel" aria-label="Sfondo">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">SFONDO</p>
-            <h2>Sfondo statico</h2>
-          </div>
-          <span class="muted">Tutti i monitor · annullabile, anche dopo un crash</span>
-        </div>
-        <input
-          class="path-input"
-          type="text"
-          placeholder="C:\Immagini\sfondo.jpg"
-          aria-label="Percorso immagine"
-          bind:value={wallpaperPath}
-        />
-        <div class="actions">
-          <button type="button" class="primary" onclick={setWallpaper} disabled={busy || !wallpaperPath.trim()}>
-            Imposta
-          </button>
-          <button type="button" onclick={revertWallpaper} disabled={busy}>Ripristina</button>
-        </div>
-        {#if wallpaperMessage}
-          <p class={wallpaperMessage.kind === "error" ? "error" : "ok"} role="status">
-            {wallpaperMessage.text}
-          </p>
         {/if}
       </section>
 

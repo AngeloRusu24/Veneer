@@ -252,3 +252,51 @@ fn error_messages_are_human_readable() {
     assert!(text.starts_with("theme is invalid:"), "{text}");
     assert!(text.contains("id:"), "{text}");
 }
+
+fn theme_with_wallpaper(path: &str) -> String {
+    format!(
+        r#"{{"schemaVersion":1,"id":"t","name":"T","wallpaper":{{"path":{}}}}}"#,
+        serde_json::to_string(path).unwrap()
+    )
+}
+
+#[test]
+fn wallpaper_accepts_absolute_static_images() {
+    for path in [
+        r"C:\Images\wall.jpg",
+        r"d:/pics/Wall.PNG",
+        r"\\server\share\a.bmp",
+    ] {
+        let theme = parse_theme(&theme_with_wallpaper(path)).unwrap();
+        assert_eq!(theme.wallpaper.unwrap().path, path);
+    }
+}
+
+#[test]
+fn wallpaper_rejects_relative_paths_and_non_images() {
+    for path in [
+        "wall.jpg",
+        r"..\wall.jpg",
+        "",
+        r"C:\Images\anim.gif",
+        r"C:\Images\clip.mp4",
+        r"C:\Images\noextension",
+    ] {
+        let issues = invalid_issues(&theme_with_wallpaper(path));
+        assert_eq!(issues.len(), 1, "{path}: {issues:?}");
+        assert_eq!(issues[0].path, "wallpaper.path");
+    }
+}
+
+#[test]
+fn wallpaper_is_optional_and_strict() {
+    assert!(
+        parse_theme(&theme_with_rules("[]"))
+            .unwrap()
+            .wallpaper
+            .is_none()
+    );
+    let extra =
+        r#"{"schemaVersion":1,"id":"t","name":"T","wallpaper":{"path":"C:\\a.jpg","fit":"fill"}}"#;
+    assert!(matches!(parse_theme(extra), Err(ThemeError::Schema(_))));
+}

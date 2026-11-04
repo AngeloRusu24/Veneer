@@ -6,8 +6,9 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use veneer_core::{
-    ApplyReport, Controller, RevertReport, ThemeSummary,
-    wallpaper::{WallpaperController, WallpaperRevert},
+    Controller, ThemeSummary,
+    applier::{ThemeApplier, ThemeReport, ThemeRevert},
+    wallpaper::WallpaperController,
 };
 use veneer_ipc::{IntegrationStage, PROTOCOL_VERSION, RuntimeStatus};
 use veneer_rule_engine::WindowContext;
@@ -19,13 +20,13 @@ use veneer_windows_platform::{
     wallpaper::DesktopWallpaperBackend,
 };
 
-type SharedController = Mutex<Controller<DwmBackend>>;
-type SharedWallpaper = Mutex<Option<WallpaperController<DesktopWallpaperBackend>>>;
+type Applier = ThemeApplier<DwmBackend, DesktopWallpaperBackend>;
+type SharedApplier = Mutex<Applier>;
 
 /// Opens the journal and restores anything a crashed run left behind. If the
 /// journal cannot be opened, wallpaper changes are disabled rather than made
 /// without a way back.
-fn open_wallpaper(app: &tauri::App) -> SharedWallpaper {
+fn open_wallpaper(app: &tauri::App) -> Option<WallpaperController<DesktopWallpaperBackend>> {
     let path = app
         .path()
         .app_data_dir()
@@ -34,7 +35,7 @@ fn open_wallpaper(app: &tauri::App) -> SharedWallpaper {
         .map(|dir| dir.join("journal.json"));
     let Some(path) = path else {
         tracing::error!("no data directory: wallpaper changes disabled");
-        return Mutex::new(None);
+        return None;
     };
     match Journal::open(path) {
         Ok((journal, opened)) => {
@@ -44,37 +45,13 @@ fn open_wallpaper(app: &tauri::App) -> SharedWallpaper {
                 Ok(report) => tracing::info!(?report, "recovery finished"),
                 Err(error) => tracing::error!(%error, "recovery failed"),
             }
-            Mutex::new(Some(controller))
+            Some(controller)
         }
         Err(error) => {
             tracing::error!(%error, "journal unavailable: wallpaper changes disabled");
-            Mutex::new(None)
+            None
         }
     }
-}
-
-#[tauri::command]
-fn set_wallpaper(wallpaper: State<'_, SharedWallpaper>, path: String) -> Result<(), String> {
-    let mut guard = wallpaper
-        .lock()
-        .map_err(|_| "stato interno non disponibile")?;
-    let controller = guard
-        .as_mut()
-        .ok_or("sfondo disabilitato: journal non disponibile")?;
-    controller
-        .set(std::path::Path::new(path.trim()))
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn revert_wallpaper(wallpaper: State<'_, SharedWallpaper>) -> Result<WallpaperRevert, String> {
-    let mut guard = wallpaper
-        .lock()
-        .map_err(|_| "stato interno non disponibile")?;
-    let controller = guard
-        .as_mut()
-        .ok_or("sfondo disabilitato: journal non disponibile")?;
-    Ok(controller.revert())
 }
 
 const AUTOSTART_NAME: &str = "Veneer";
@@ -156,30 +133,30 @@ fn validate_theme(theme: String) -> Result<ThemeSummary, String> {
 #[tauri::command]
 fn apply_theme(
     window: WebviewWindow,
-    controller: State<'_, SharedController>,
+    applier: State<'_, SharedApplier>,
     theme: String,
-) -> Result<ApplyReport, String> {
+) -> Result<ThemeReport, String> {
     let handle = window_handle(&window)?;
     let now = local_time_of_day().ok_or("impossibile leggere l'ora locale")?;
     let context = window_context(&window);
-    let mut controller = controller
+    let mut applier = applier
         .lock()
         .map_err(|_| "stato interno non disponibile")?;
-    controller
-        .apply_theme(handle, &theme, &context, now)
+    applier
+        .apply(handle, &theme, &context, now)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn revert_theme(
     window: WebviewWindow,
-    controller: State<'_, SharedController>,
-) -> Result<RevertReport, String> {
+    applier: State<'_, SharedApplier>,
+) -> Result<ThemeRevert, String> {
     let handle = window_handle(&window)?;
-    let mut controller = controller
+    let mut applier = applier
         .lock()
         .map_err(|_| "stato interno non disponibile")?;
-    Ok(controller.revert(handle))
+    Ok(applier.revert(handle))
 }
 
 fn window_handle(window: &WebviewWindow) -> Result<isize, String> {
@@ -212,10 +189,6 @@ fn window_context(window: &WebviewWindow) -> WindowContext {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
-        .manage::<SharedController>(Mutex::new(Controller::new(
-            DwmBackend::default(),
-            build_number(),
-        )))
         .setup(|app| {
             if let Ok(dir) = app.path().app_log_dir() {
                 let _ = std::fs::create_dir_all(&dir);
@@ -223,7 +196,8 @@ pub fn run() {
                     eprintln!("logging disabled: {error}");
                 }
             }
-            app.manage(open_wallpaper(app));
+            let frames = Controller::new(DwmBackend::default(), build_number());
+            app.manage::<SharedApplier>(Mutex::new(ThemeApplier::new(frames, open_wallpaper(app))));
             setup_tray(app)?;
             if std::env::args().any(|arg| arg == MINIMIZED_FLAG)
                 && let Some(window) = app.get_webview_window("main")
@@ -245,25 +219,17 @@ pub fn run() {
             apply_theme,
             revert_theme,
             get_autostart,
-            set_autostart,
-            set_wallpaper,
-            revert_wallpaper
+            set_autostart
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Veneer desktop application");
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            if let Some(controller) = handle.try_state::<SharedController>()
-                && let Ok(mut controller) = controller.lock()
+            if let Some(applier) = handle.try_state::<SharedApplier>()
+                && let Ok(mut applier) = applier.lock()
             {
-                controller.revert_all();
-            }
-            if let Some(wallpaper) = handle.try_state::<SharedWallpaper>()
-                && let Ok(mut wallpaper) = wallpaper.lock()
-                && let Some(wallpaper) = wallpaper.as_mut()
-            {
-                wallpaper.revert();
+                applier.revert_all();
             }
         }
     });

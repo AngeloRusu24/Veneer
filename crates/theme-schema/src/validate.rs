@@ -43,6 +43,9 @@ pub(crate) fn validate(theme: &Theme) -> Result<(), ThemeError> {
         ));
     }
 
+    if let Some(wallpaper) = &theme.wallpaper {
+        validate_wallpaper_path(&wallpaper.path, &mut issues);
+    }
     let mut seen_ids = HashSet::new();
     for (index, rule) in theme.rules.iter().enumerate() {
         let path = format!("rules[{index}]");
@@ -103,6 +106,40 @@ fn validate_condition(condition: &Condition, path: &str, issues: &mut Vec<Issue>
         issues.push(Issue::new(
             format!("{path}.timeRange"),
             "`from` and `to` must differ",
+        ));
+    }
+}
+
+fn validate_wallpaper_path(path: &str, issues: &mut Vec<Issue>) {
+    const FIELD: &str = "wallpaper.path";
+    const EXTENSIONS: [&str; 6] = ["jpg", "jpeg", "png", "bmp", "tif", "tiff"];
+
+    // Checked by hand so validation behaves the same on every platform.
+    let bytes = path.as_bytes();
+    let absolute = path.starts_with(r"\\")
+        || (bytes.len() > 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/'));
+    if !absolute {
+        issues.push(Issue::new(
+            FIELD,
+            r"must be an absolute path such as C:\Images\wall.jpg",
+        ));
+        return;
+    }
+    let extension = path
+        .rsplit(['\\', '/'])
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .map(|(_, ext)| ext.to_ascii_lowercase());
+    if !extension.is_some_and(|ext| EXTENSIONS.contains(&ext.as_str())) {
+        issues.push(Issue::new(
+            FIELD,
+            format!(
+                "must be a static image ({}); animated wallpapers are not supported",
+                EXTENSIONS.join(", ")
+            ),
         ));
     }
 }

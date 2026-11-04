@@ -112,6 +112,11 @@ impl<B: WallpaperBackend> WallpaperController<B> {
         !self.journal.is_empty()
     }
 
+    #[cfg(test)]
+    pub(crate) fn backend(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
     /// Sets `image` on every monitor. All checks and the journal write happen
     /// before the first change, so any error leaves the desktop untouched.
     pub fn set(&mut self, image: &Path) -> Result<(), WallpaperError> {
