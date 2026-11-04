@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "midnight-work",
+  "name": "Midnight Work",
+  "target": { "minimumBuild": 22621 },
+  "unsupported": "warn",
+  "rules": [
+    {
+      "id": "veneer-window",
+      "when": { "processName": "veneer-desktop.exe" },
+      "apply": {
+        "windowFrame": {
+          "colorMode": "dark",
+          "borderColor": "#52627A",
+          "captionColor": "#101116",
+          "textColor": "#E8EAF0",
+          "cornerPreference": "round",
+          "backdrop": "mica"
+        }
+      }
+    },
+    {
+      "id": "evening-dark-frame",
+      "when": {
+        "timeRange": { "from": "20:00", "to": "07:00" },
+        "monitor": "primary"
+      },
+      "apply": {
+        "windowFrame": { "colorMode": "dark" }
+      }
+    }
+  ]
+}

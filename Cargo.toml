@@ -2,6 +2,7 @@
 members = [
     "apps/desktop/src-tauri",
     "crates/ipc",
+    "crates/theme-schema",
     "crates/windows-platform",
 ]
 resolver = "2"
@@ -13,6 +14,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 codegen-units = 1
