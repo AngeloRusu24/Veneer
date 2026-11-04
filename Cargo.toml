@@ -1,8 +1,10 @@
 [workspace]
 members = [
     "apps/desktop/src-tauri",
+    "crates/diagnostics",
     "crates/ipc",
     "crates/rule-engine",
+    "crates/state-journal",
     "crates/theme-schema",
     "crates/windows-platform",
 ]

@@ -18,6 +18,10 @@ implemented with undocumented hooks or process injection.
   validation (pure, no I/O). Example: `themes/examples/midnight-work.json`.
 - `crates/rule-engine` — deterministic, CSS-like cascade that resolves which
   style applies to a window at a given time (pure).
+- `crates/state-journal` — write-ahead journal of original system state with
+  atomic saves and crash recovery (module-agnostic, keeps the first snapshot).
+- `crates/diagnostics` — structured JSON logging (`VENEER_LOG=debug` to raise
+  verbosity).
 - `crates/windows-platform` — Windows build detection and DWM window-frame
   styling. Planning (`plan`) is portable; applying (`dwm`) is Windows-only and
   records previous values so changes can be restored.
@@ -45,8 +49,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 - The theme, rule and DWM crates are not wired into the app yet, so no
   system settings are changed end to end.
 - DWM color attributes cannot be read back; restore uses the system default.
-- Applying a style twice to the same window would snapshot the already-styled
-  state; the planned state journal must keep the first, original snapshot.
+- Applying a style twice to the same window snapshots the already-styled
+  state in `windows-platform` alone; callers must go through the state journal,
+  which keeps the first snapshot.
+- DWM attributes die with the window, so a crash needs no recovery for them;
+  the journal exists for global changes (accent, cursors, wallpaper) that are
+  not wired in yet.
 - Global display filters and animated desktop wallpapers require a separate
   feasibility decision; the documented wallpaper API supports static images
   and slideshows, not an arbitrary animated desktop renderer.
