@@ -3643,6 +3643,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "veneer-rule-engine"
+version = "0.1.0"
+dependencies = [
+ "veneer-theme-schema",
+]
+
+[[package]]
 name = "veneer-theme-schema"
 version = "0.1.0"
 dependencies = [

@@ -168,6 +168,11 @@ pub struct TimeOfDay {
 }
 
 impl TimeOfDay {
+    /// Returns `None` if `minutes` is not within a single day (0..1440).
+    pub fn from_minutes(minutes: u16) -> Option<Self> {
+        (minutes < 24 * 60).then_some(Self { minutes })
+    }
+
     pub fn minutes_since_midnight(self) -> u16 {
         self.minutes
     }

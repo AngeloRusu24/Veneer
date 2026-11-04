@@ -2,6 +2,7 @@
 members = [
     "apps/desktop/src-tauri",
     "crates/ipc",
+    "crates/rule-engine",
     "crates/theme-schema",
     "crates/windows-platform",
 ]

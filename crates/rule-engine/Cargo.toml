@@ -1,0 +1,8 @@
+[package]
+name = "veneer-rule-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+veneer-theme-schema = { path = "../theme-schema" }
