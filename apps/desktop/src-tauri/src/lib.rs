@@ -225,12 +225,11 @@ pub fn run() {
         .expect("failed to build Veneer desktop application");
 
     app.run(|handle, event| {
-        if let RunEvent::Exit = event {
-            if let Some(applier) = handle.try_state::<SharedApplier>()
-                && let Ok(mut applier) = applier.lock()
-            {
-                applier.revert_all();
-            }
+        if let RunEvent::Exit = event
+            && let Some(applier) = handle.try_state::<SharedApplier>()
+            && let Ok(mut applier) = applier.lock()
+        {
+            applier.revert_all();
         }
     });
 }
