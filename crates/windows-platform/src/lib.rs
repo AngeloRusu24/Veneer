@@ -13,6 +13,8 @@ pub mod autostart;
 pub mod dwm;
 #[cfg(windows)]
 pub mod os;
+#[cfg(windows)]
+pub mod wallpaper;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityStatus {

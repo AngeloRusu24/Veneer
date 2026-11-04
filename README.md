@@ -25,6 +25,9 @@ implemented with undocumented hooks or process injection.
 - `crates/windows-platform` — Windows build detection and DWM window-frame
   styling. Planning (`plan`) is portable; applying (`dwm`) is Windows-only and
   records previous values so changes can be restored.
+- `windows-platform::wallpaper` — static wallpaper per monitor via
+  `IDesktopWallpaper`, with capture/restore (not yet exposed in the UI).
+- `windows-platform::autostart` — per-user autostart via the HKCU Run key.
 - `crates/core` — `Controller`: parse → check build/policy → resolve rules →
   apply, all checks before the first write; generic over a `FrameBackend` so it
   is tested without a real window.
