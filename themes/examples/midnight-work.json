@@ -4,6 +4,7 @@
   "name": "Midnight Work",
   "target": { "minimumBuild": 22621 },
   "unsupported": "warn",
+  "appearance": { "apps": "dark", "system": "dark" },
   "rules": [
     {
       "id": "veneer-window",

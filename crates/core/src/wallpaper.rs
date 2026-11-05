@@ -146,21 +146,29 @@ impl<B: WallpaperBackend> WallpaperController<B> {
     /// Puts the original wallpaper back. If a monitor fails, the journal entry
     /// is kept so the next attempt (or start) can retry.
     pub fn revert(&mut self) -> WallpaperRevert {
-        let Some(snapshot) = self
+        let Some(entry) = self
             .journal
             .entries()
             .iter()
             .find(|e| e.module == MODULE && e.key == KEY)
-            .and_then(|e| from_json(&e.original))
         else {
             return WallpaperRevert {
                 was_changed: false,
                 failed: Vec::new(),
             };
         };
-        let failed = self.backend.restore(&snapshot);
+        let Some(snapshot) = from_json(&entry.original) else {
+            return WallpaperRevert {
+                was_changed: true,
+                failed: vec!["lo snapshot dello sfondo non è leggibile; journal mantenuto".into()],
+            };
+        };
+        let mut failed = self.backend.restore(&snapshot);
         if failed.is_empty() {
-            let _ = self.journal.forget(MODULE, KEY);
+            if let Err(error) = self.journal.forget(MODULE, KEY) {
+                tracing::error!(%error, "wallpaper restored but its journal entry could not be cleared");
+                failed.push(format!("journal cleanup failed: {error}"));
+            }
         } else {
             tracing::warn!(?failed, "wallpaper restore incomplete");
         }
@@ -314,6 +322,21 @@ mod tests {
         let env = env();
         let mut c = controller(&env, original());
         assert!(!c.revert().was_changed);
+    }
+
+    #[test]
+    fn unreadable_snapshot_is_reported_and_kept() {
+        let env = env();
+        let (mut journal, _) = Journal::open(env.dir.path().join("journal.json")).unwrap();
+        journal
+            .record(MODULE, KEY, serde_json::json!({ "unexpected": true }))
+            .unwrap();
+        let mut c = WallpaperController::new(original(), journal);
+
+        let result = c.revert();
+        assert!(result.was_changed);
+        assert!(!result.failed.is_empty());
+        assert!(c.is_changed());
     }
 
     #[test]

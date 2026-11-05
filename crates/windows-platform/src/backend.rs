@@ -34,3 +34,32 @@ pub trait WallpaperBackend {
     /// Returns a description of each monitor that could not be restored.
     fn restore(&mut self, snapshot: &[MonitorWallpaper]) -> Vec<String>;
 }
+
+/// `(name, value)` pairs. Used both for what a theme asks for and for the
+/// original state captured before a change, so one journaled controller can
+/// drive several simple global settings.
+pub type Settings = Vec<(String, String)>;
+pub type Snapshot = Vec<(String, Option<String>)>;
+
+/// A global, user-level setting changed through a documented API.
+pub trait SettingBackend {
+    /// Reads the current state so it can be put back.
+    fn capture(&mut self) -> Result<Snapshot, String>;
+    /// Applies the requested values; may leave partial changes on error,
+    /// in which case the caller calls [`SettingBackend::restore`].
+    fn apply(&mut self, desired: &[(String, String)]) -> Result<(), String>;
+    /// Returns a description of everything that could not be restored.
+    fn restore(&mut self, snapshot: &Snapshot) -> Vec<String>;
+}
+
+impl<T: SettingBackend + ?Sized> SettingBackend for Box<T> {
+    fn capture(&mut self) -> Result<Snapshot, String> {
+        (**self).capture()
+    }
+    fn apply(&mut self, desired: &[(String, String)]) -> Result<(), String> {
+        (**self).apply(desired)
+    }
+    fn restore(&mut self, snapshot: &Snapshot) -> Vec<String> {
+        (**self).restore(snapshot)
+    }
+}

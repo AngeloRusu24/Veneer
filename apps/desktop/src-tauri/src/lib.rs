@@ -8,13 +8,17 @@ use tauri::{
 use veneer_core::{
     Controller, ThemeSummary,
     applier::{ThemeApplier, ThemeReport, ThemeRevert},
+    setting::{SettingController, appearance_of, cursors_of},
     wallpaper::WallpaperController,
 };
 use veneer_ipc::{IntegrationStage, PROTOCOL_VERSION, RuntimeStatus};
 use veneer_rule_engine::WindowContext;
 use veneer_state_journal::Journal;
 use veneer_windows_platform::{
+    appearance::AppearanceBackend,
     autostart::Autostart,
+    backend::SettingBackend,
+    cursors::CursorBackend,
     dwm::DwmBackend,
     os::{build_number, local_time_of_day},
     wallpaper::DesktopWallpaperBackend,
@@ -27,16 +31,18 @@ type SharedApplier = Mutex<Applier>;
 /// journal cannot be opened, wallpaper changes are disabled rather than made
 /// without a way back.
 fn open_wallpaper(app: &tauri::App) -> Option<WallpaperController<DesktopWallpaperBackend>> {
-    let path = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .and_then(|dir| std::fs::create_dir_all(&dir).ok().map(|_| dir))
-        .map(|dir| dir.join("journal.json"));
-    let Some(path) = path else {
-        tracing::error!("no data directory: wallpaper changes disabled");
-        return None;
+    let dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            tracing::error!(%error, "no data directory: wallpaper changes disabled");
+            return None;
+        }
     };
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        tracing::error!(%error, "cannot create data directory: wallpaper changes disabled");
+        return None;
+    }
+    let path = dir.join("wallpaper.journal.json");
     match Journal::open(path) {
         Ok((journal, opened)) => {
             tracing::info!(?opened, "journal opened");
@@ -52,6 +58,39 @@ fn open_wallpaper(app: &tauri::App) -> Option<WallpaperController<DesktopWallpap
             None
         }
     }
+}
+
+fn open_setting<B: SettingBackend + Send + 'static>(
+    app: &tauri::App,
+    module: &'static str,
+    backend: B,
+) -> Option<SettingController> {
+    let dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            tracing::error!(%error, module, "no data directory: setting disabled");
+            return None;
+        }
+    };
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        tracing::error!(%error, module, "cannot create data directory: setting disabled");
+        return None;
+    }
+    let journal_path = dir.join(format!("{module}.journal.json"));
+    let (journal, opened) = match Journal::open(journal_path) {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::error!(%error, module, "journal unavailable: setting disabled");
+            return None;
+        }
+    };
+    tracing::info!(?opened, module, "setting journal opened");
+    let mut controller = SettingController::new(module, backend, journal);
+    match controller.recover() {
+        Ok(report) => tracing::info!(?report, module, "setting recovery finished"),
+        Err(error) => tracing::error!(%error, module, "setting recovery failed"),
+    }
+    Some(controller)
 }
 
 const AUTOSTART_NAME: &str = "Veneer";
@@ -189,6 +228,7 @@ fn window_context(window: &WebviewWindow) -> WindowContext {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if let Ok(dir) = app.path().app_log_dir() {
                 let _ = std::fs::create_dir_all(&dir);
@@ -197,7 +237,18 @@ pub fn run() {
                 }
             }
             let frames = Controller::new(DwmBackend::default(), build_number());
-            app.manage::<SharedApplier>(Mutex::new(ThemeApplier::new(frames, open_wallpaper(app))));
+            let applier = ThemeApplier::new(frames, open_wallpaper(app))
+                .with_setting(
+                    "appearance",
+                    appearance_of,
+                    open_setting(app, "appearance", AppearanceBackend::default()),
+                )
+                .with_setting(
+                    "cursors",
+                    cursors_of,
+                    open_setting(app, "cursors", CursorBackend),
+                );
+            app.manage::<SharedApplier>(Mutex::new(applier));
             setup_tray(app)?;
             if std::env::args().any(|arg| arg == MINIMIZED_FLAG)
                 && let Some(window) = app.get_webview_window("main")
@@ -229,7 +280,20 @@ pub fn run() {
             && let Some(applier) = handle.try_state::<SharedApplier>()
             && let Ok(mut applier) = applier.lock()
         {
-            applier.revert_all();
+            let (frames, wallpaper, settings) = applier.revert_all();
+            for frame in frames {
+                if !frame.failed.is_empty() {
+                    tracing::error!(?frame.failed, "window frame rollback incomplete on exit");
+                }
+            }
+            if !wallpaper.failed.is_empty() {
+                tracing::error!(?wallpaper.failed, "wallpaper rollback incomplete on exit");
+            }
+            for setting in settings {
+                if !setting.failed.is_empty() {
+                    tracing::error!(module = %setting.name, ?setting.failed, "setting rollback incomplete on exit");
+                }
+            }
         }
     });
 }

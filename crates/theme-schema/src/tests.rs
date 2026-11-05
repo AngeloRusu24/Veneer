@@ -300,3 +300,47 @@ fn wallpaper_is_optional_and_strict() {
         r#"{"schemaVersion":1,"id":"t","name":"T","wallpaper":{"path":"C:\\a.jpg","fit":"fill"}}"#;
     assert!(matches!(parse_theme(extra), Err(ThemeError::Schema(_))));
 }
+
+fn theme_with(extra: &str) -> String {
+    format!(r#"{{"schemaVersion":1,"id":"t","name":"T",{extra}}}"#)
+}
+
+#[test]
+fn appearance_accepts_modes_and_rejects_empty_or_unknown() {
+    let theme = parse_theme(&theme_with(
+        r#""appearance":{"apps":"dark","system":"light"}"#,
+    ))
+    .unwrap();
+    let appearance = theme.appearance.unwrap();
+    assert_eq!(appearance.apps, Some(ColorMode::Dark));
+    assert_eq!(appearance.system, Some(ColorMode::Light));
+
+    let issues = invalid_issues(&theme_with(r#""appearance":{}"#));
+    assert_eq!(issues[0].path, "appearance");
+    assert!(matches!(
+        parse_theme(&theme_with(r#""appearance":{"apps":"blue"}"#)),
+        Err(ThemeError::Schema(_))
+    ));
+}
+
+#[test]
+fn cursors_accept_absolute_cur_and_ani_files() {
+    let theme = parse_theme(&theme_with(
+        r#""cursors":{"arrow":"C:\\c\\a.cur","wait":"C:\\c\\w.ANI"}"#,
+    ))
+    .unwrap();
+    let entries = theme.cursors.unwrap().entries().len();
+    assert_eq!(entries, 2);
+}
+
+#[test]
+fn cursors_reject_bad_paths_and_empty_sets() {
+    let issues = invalid_issues(&theme_with(
+        r#""cursors":{"arrow":"a.cur","hand":"C:\\h.png"}"#,
+    ));
+    let paths: Vec<_> = issues.iter().map(|i| i.path.as_str()).collect();
+    assert_eq!(paths, ["cursors.arrow", "cursors.hand"]);
+
+    let issues = invalid_issues(&theme_with(r#""cursors":{}"#));
+    assert_eq!(issues[0].path, "cursors");
+}

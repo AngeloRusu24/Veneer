@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
 
   type RuntimeStatus = {
@@ -19,6 +20,7 @@
     failed: { property: string; hresult: number }[];
     warnings: string[];
     wallpaper: "notRequested" | "applied" | "reverted" | "failed";
+    settings: { name: string; status: "notRequested" | "applied" | "reverted" | "failed" }[];
   };
   type ThemeSummary = { id: string; name: string; ruleCount: number };
 
@@ -28,6 +30,7 @@
       id: "midnight-work",
       name: "Midnight Work",
       unsupported: "warn",
+      appearance: { apps: "dark", system: "dark" },
       rules: [
         {
           id: "veneer-window",
@@ -54,6 +57,58 @@
   let report = $state<ApplyReport | null>(null);
   let busy = $state(false);
   let autostart = $state(false);
+  let appsMode = $state("dark");
+  let systemMode = $state("dark");
+  let cursorRole = $state("arrow");
+
+  function updateTheme(change: (theme: Record<string, unknown>) => void, message: string) {
+    let theme: Record<string, unknown>;
+    try {
+      theme = JSON.parse(themeText);
+      if (typeof theme !== "object" || theme === null || Array.isArray(theme)) {
+        throw new Error("Il tema deve essere un oggetto JSON");
+      }
+    } catch (cause) {
+      throw new Error(`JSON del tema non valido: ${describe(cause)}`);
+    }
+    change(theme);
+    themeText = JSON.stringify(theme, null, 2);
+    report = null;
+    themeMessage = { kind: "ok", text: message };
+  }
+
+  const setAppearance = (key: "apps" | "system", value: string) =>
+    run(async () => {
+      updateTheme((theme) => {
+        const appearance =
+          typeof theme.appearance === "object" && theme.appearance !== null
+            ? { ...(theme.appearance as Record<string, unknown>) }
+            : {};
+        if (value) appearance[key] = value;
+        else delete appearance[key];
+        if (Object.keys(appearance).length) theme.appearance = appearance;
+        else delete theme.appearance;
+      }, "Modalità inserita nel tema; premi Applica");
+      if (key === "apps") appsMode = value;
+      else systemMode = value;
+    });
+
+  const chooseCursor = () =>
+    run(async () => {
+      const path = await open({
+        multiple: false,
+        filters: [{ name: "Cursori Windows", extensions: ["cur", "ani"] }],
+      });
+      if (!path) return;
+      updateTheme((theme) => {
+        const cursors =
+          typeof theme.cursors === "object" && theme.cursors !== null
+            ? { ...(theme.cursors as Record<string, unknown>) }
+            : {};
+        cursors[cursorRole] = path;
+        theme.cursors = cursors;
+      }, "Cursore inserito nel tema; premi Applica");
+    });
   onMount(async () => {
     try {
       autostart = await invoke<boolean>("get_autostart");
@@ -83,6 +138,18 @@
     }
   }
 
+  const chooseWallpaper = () =>
+    run(async () => {
+      const path = await open({
+        multiple: false,
+        filters: [{ name: "Immagini", extensions: ["jpg", "jpeg", "png", "bmp", "tif", "tiff"] }],
+      });
+      if (!path) return;
+      updateTheme((theme) => {
+        theme.wallpaper = { path };
+      }, "Sfondo inserito nel tema; premi Applica");
+    });
+
   const validate = () =>
     run(async () => {
       const summary = await invoke<ThemeSummary>("validate_theme", { theme: themeText });
@@ -96,21 +163,32 @@
   const apply = () =>
     run(async () => {
       report = await invoke<ApplyReport>("apply_theme", { theme: themeText });
-      themeMessage = { kind: "ok", text: "Tema applicato a questa finestra" };
+      themeMessage = { kind: "ok", text: "Tema applicato; le modifiche globali sono attive" };
     });
 
   const revert = () =>
     run(async () => {
       const result = await invoke<{
-        frame: { wasStyled: boolean };
+        frame: {
+          wasStyled: boolean;
+          failed: { property: string; hresult: number }[];
+        };
         wallpaper: { wasChanged: boolean; failed: string[] };
+        settings: { name: string; wasChanged: boolean; failed: string[] }[];
       }>("revert_theme");
       report = null;
+      const failures = [
+        ...result.frame.failed.map((item) => `cornice ${item.property} (${item.hresult})`),
+        ...result.wallpaper.failed.map((item) => `sfondo: ${item}`),
+        ...result.settings.flatMap((item) => item.failed.map((failure) => `${item.name}: ${failure}`)),
+      ];
       themeMessage = {
-        kind: result.wallpaper.failed.length ? "error" : "ok",
-        text: result.wallpaper.failed.length
-          ? `Sfondo non ripristinato: ${result.wallpaper.failed.join("; ")}`
-          : result.frame.wasStyled || result.wallpaper.wasChanged
+        kind: failures.length ? "error" : "ok",
+        text: failures.length
+          ? `Ripristino incompleto: ${failures.join("; ")}`
+          : result.frame.wasStyled ||
+              result.wallpaper.wasChanged ||
+              result.settings.some((item) => item.wasChanged)
             ? "Stato originale ripristinato"
             : "Nessuna modifica da annullare",
       };
@@ -182,13 +260,14 @@
       <section class="notice" aria-label="Stato del progetto">
         <div class="notice-icon">✳</div>
         <div>
-          <h2>Il workspace è pronto per iniziare</h2>
+          <h2>Personalizzazione reversibile</h2>
           <p>
-            Veneer è in fase di sviluppo. Al momento non applica modifiche al
-            sistema né alle finestre di altre applicazioni.
+            Cornici e impostazioni globali vengono applicate tramite API
+            Windows documentate; le modifiche globali vengono ripristinate
+            quando annulli o esci.
           </p>
         </div>
-        <span class="badge">SCAFFOLD</span>
+        <span class="badge">MVP</span>
       </section>
 
       <section class="panel" id="themes" aria-label="Anteprima tema">
@@ -197,7 +276,7 @@
             <p class="eyebrow">ANTEPRIMA</p>
             <h2>Prova un tema</h2>
           </div>
-          <span class="muted">Si applica solo alla finestra di Veneer</span>
+          <span class="muted">Cornice della finestra + impostazioni globali selezionate</span>
         </div>
         <textarea
           class="theme-input"
@@ -206,6 +285,53 @@
           bind:value={themeText}
         ></textarea>
         <div class="actions">
+          <label>
+            Modalità app
+            <select
+              value={appsMode}
+              disabled={busy}
+              onchange={(event) => setAppearance("apps", event.currentTarget.value)}
+            >
+              <option value="">Non modificare</option>
+              <option value="light">Chiara</option>
+              <option value="dark">Scura</option>
+            </select>
+          </label>
+          <label>
+            Modalità Windows
+            <select
+              value={systemMode}
+              disabled={busy}
+              onchange={(event) => setAppearance("system", event.currentTarget.value)}
+            >
+              <option value="">Non modificare</option>
+              <option value="light">Chiara</option>
+              <option value="dark">Scura</option>
+            </select>
+          </label>
+          <label>
+            Ruolo cursore
+            <select bind:value={cursorRole} disabled={busy}>
+              <option value="arrow">Freccia</option>
+              <option value="ibeam">Testo</option>
+              <option value="wait">Attesa</option>
+              <option value="appStarting">Avvio app</option>
+              <option value="hand">Mano</option>
+              <option value="help">Aiuto</option>
+              <option value="cross">Precisione</option>
+              <option value="no">Non disponibile</option>
+              <option value="sizeAll">Sposta</option>
+              <option value="sizeNs">Ridimensiona verticale</option>
+              <option value="sizeWe">Ridimensiona orizzontale</option>
+              <option value="sizeNesw">Ridimensiona diagonale ↗</option>
+              <option value="sizeNwse">Ridimensiona diagonale ↘</option>
+              <option value="upArrow">Freccia alternativa</option>
+            </select>
+          </label>
+          <button type="button" onclick={chooseCursor} disabled={busy}>Scegli cursore…</button>
+        </div>
+        <div class="actions">
+          <button type="button" onclick={chooseWallpaper} disabled={busy}>Scegli sfondo…</button>
           <button type="button" onclick={validate} disabled={busy}>Valida</button>
           <button type="button" class="primary" onclick={apply} disabled={busy}>Applica</button>
           <button type="button" onclick={revert} disabled={busy}>Annulla</button>
@@ -226,6 +352,13 @@
             {:else if report.wallpaper === "failed"}
               <li class="warn">Sfondo non impostato (vedi avvisi)</li>
             {/if}
+            {#each report.settings as setting}
+              {#if setting.status !== "notRequested"}
+                <li class:warn={setting.status === "failed"}>
+                  {setting.name}: {setting.status}
+                </li>
+              {/if}
+            {/each}
             {#each report.skipped as item}
               <li class="warn">Saltata {item.property}: richiede build {item.requiredBuild}</li>
             {/each}
@@ -261,7 +394,7 @@
         <article class="module-card">
           <div class="card-top">
             <span class="module-icon violet">▱</span>
-            <span class="module-state">IN SVILUPPO</span>
+            <span class="module-state">MVP</span>
           </div>
           <h3>Cornici delle finestre</h3>
           <p>Attributi DWM sulle sole finestre controllate dall’app.</p>
@@ -271,37 +404,47 @@
         <article class="module-card">
           <div class="card-top">
             <span class="module-icon blue">⌁</span>
-            <span class="module-state">IN SVILUPPO</span>
+            <span class="module-state">MVP</span>
           </div>
           <h3>Temi e regole</h3>
           <p>Configurazioni dichiarative validate prima dell’applicazione.</p>
           <div class="card-bottom"><span>JSON versionato</span><span>↗</span></div>
         </article>
 
+        <article class="module-card">
+          <div class="card-top">
+            <span class="module-icon violet">◉</span>
+            <span class="module-state">MVP</span>
+          </div>
+          <h3>Aspetto e cursori</h3>
+          <p>Modalità chiara/scura e cursori globali, con ripristino automatico.</p>
+          <div class="card-bottom"><span>Una modalità è best-effort</span><span>!</span></div>
+        </article>
+
         <article class="module-card unavailable">
           <div class="card-top">
             <span class="module-icon amber">◉</span>
-            <span class="module-state">DA VERIFICARE</span>
+            <span class="module-state">NON OFFERTI</span>
           </div>
           <h3>Filtri globali</h3>
           <p>
             Le API pubbliche verificate non garantiscono filtri arbitrari per
             schermo o monitor.
           </p>
-          <div class="card-bottom"><span>Possibili limiti Windows</span><span>!</span></div>
+          <div class="card-bottom"><span>Nessuna API documentata</span><span>!</span></div>
         </article>
 
         <article class="module-card unavailable">
           <div class="card-top">
             <span class="module-icon green">▧</span>
-            <span class="module-state">DA VERIFICARE</span>
+            <span class="module-state">STATICI SOLI</span>
           </div>
-          <h3>Sfondi animati</h3>
+          <h3>Sfondi</h3>
           <p>
-            L’interfaccia documentata supporta immagini statiche e slideshow,
-            non renderer animati agganciati al desktop.
+            Sfondi statici supportati. GIF, video e shader richiederebbero API
+            desktop non documentate e non sono offerti.
           </p>
-          <div class="card-bottom"><span>Possibili limiti Windows</span><span>!</span></div>
+          <div class="card-bottom"><span>Animazioni non offerte</span><span>!</span></div>
         </article>
       </div>
 

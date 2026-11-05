@@ -44,7 +44,33 @@ pub(crate) fn validate(theme: &Theme) -> Result<(), ThemeError> {
     }
 
     if let Some(wallpaper) = &theme.wallpaper {
-        validate_wallpaper_path(&wallpaper.path, &mut issues);
+        validate_file_path(
+            "wallpaper.path",
+            &wallpaper.path,
+            &["jpg", "jpeg", "png", "bmp", "tif", "tiff"],
+            "a static image",
+            &mut issues,
+        );
+    }
+    if let Some(appearance) = &theme.appearance
+        && appearance.is_empty()
+    {
+        issues.push(Issue::new("appearance", "must set `apps` or `system`"));
+    }
+    if let Some(cursors) = &theme.cursors {
+        let entries = cursors.entries();
+        if entries.is_empty() {
+            issues.push(Issue::new("cursors", "must set at least one cursor"));
+        }
+        for (role, path) in entries {
+            validate_file_path(
+                &format!("cursors.{role}"),
+                path,
+                &["cur", "ani"],
+                "a .cur or .ani cursor file",
+                &mut issues,
+            );
+        }
     }
     let mut seen_ids = HashSet::new();
     for (index, rule) in theme.rules.iter().enumerate() {
@@ -110,10 +136,13 @@ fn validate_condition(condition: &Condition, path: &str, issues: &mut Vec<Issue>
     }
 }
 
-fn validate_wallpaper_path(path: &str, issues: &mut Vec<Issue>) {
-    const FIELD: &str = "wallpaper.path";
-    const EXTENSIONS: [&str; 6] = ["jpg", "jpeg", "png", "bmp", "tif", "tiff"];
-
+fn validate_file_path(
+    field: &str,
+    path: &str,
+    extensions: &[&str],
+    what: &str,
+    issues: &mut Vec<Issue>,
+) {
     // Checked by hand so validation behaves the same on every platform.
     let bytes = path.as_bytes();
     let absolute = path.starts_with(r"\\")
@@ -123,8 +152,8 @@ fn validate_wallpaper_path(path: &str, issues: &mut Vec<Issue>) {
             && (bytes[2] == b'\\' || bytes[2] == b'/'));
     if !absolute {
         issues.push(Issue::new(
-            FIELD,
-            r"must be an absolute path such as C:\Images\wall.jpg",
+            field,
+            r"must be an absolute path such as C:\Images\file.ext",
         ));
         return;
     }
@@ -133,13 +162,10 @@ fn validate_wallpaper_path(path: &str, issues: &mut Vec<Issue>) {
         .next()
         .and_then(|name| name.rsplit_once('.'))
         .map(|(_, ext)| ext.to_ascii_lowercase());
-    if !extension.is_some_and(|ext| EXTENSIONS.contains(&ext.as_str())) {
+    if !extension.is_some_and(|ext| extensions.contains(&ext.as_str())) {
         issues.push(Issue::new(
-            FIELD,
-            format!(
-                "must be a static image ({}); animated wallpapers are not supported",
-                EXTENSIONS.join(", ")
-            ),
+            field,
+            format!("must be {what} ({})", extensions.join(", ")),
         ));
     }
 }

@@ -5,9 +5,9 @@ uses documented Microsoft APIs only. Features that Windows does not expose
 through a supported API will be identified as unavailable rather than
 implemented with undocumented hooks or process injection.
 
-> **Early development:** Veneer can apply a theme's window-frame rules (DWM)
-> to its own window, with one-click revert. It does not yet change other
-> Windows settings or style third-party application windows.
+> **Early development:** Veneer applies DWM frame styles to its own window,
+> static wallpapers, best-effort light/dark mode, and system cursors. Global
+> changes are journaled and can be reverted; third-party windows are not styled.
 
 ## Project layout
 
@@ -26,12 +26,20 @@ implemented with undocumented hooks or process injection.
   styling. Planning (`plan`) is portable; applying (`dwm`) is Windows-only and
   records previous values so changes can be restored.
 - `crates/core::applier` — `ThemeApplier`: applies a theme's window frame and
-  wallpaper together, undoes both.
+  global settings together, undoes them.
+- `crates/core::setting` — journaled global settings shared by the appearance
+  and cursor modules, with startup recovery.
 - `crates/core::wallpaper` — journaled wallpaper changes: the original is
   written to disk before the change and restored on revert, on exit, or at the
   next start after a crash.
 - `windows-platform::wallpaper` — static wallpaper per monitor via
   `IDesktopWallpaper`, with capture/restore.
+- `windows-platform::appearance` — app/system light-dark values with a
+  `WM_SETTINGCHANGE` broadcast. This is best-effort: Windows uses these
+  per-user registry values, but does not document them as a stable setter.
+- `windows-platform::cursors` — documented `SetSystemCursor` and
+  `SystemParametersInfo(SPI_SETCURSORS)` APIs; restores the user's configured
+  cursor scheme on revert or startup recovery.
 - `windows-platform::autostart` — per-user autostart via the HKCU Run key.
 - `crates/core` — `Controller`: parse → check build/policy → resolve rules →
   apply, all checks before the first write; generic over a `FrameBackend` so it
@@ -60,14 +68,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```mermaid
 flowchart LR
     UI[Svelte UI] -->|Tauri commands| App[apps/desktop<br/>tray, autostart]
-    App --> Core[core::Controller]
+    App --> Core[core::ThemeApplier]
     Core --> Schema[theme-schema]
     Core --> Rules[rule-engine]
     Core --> Plan[windows-platform::plan]
     Core -->|FrameBackend| DWM[windows-platform::dwm]
     App --> Auto[windows-platform::autostart]
     App --> Diag[diagnostics]
-    Journal[state-journal] -.global changes, future.-> Core
+    Core --> Frame[DWM window frame]
+    Core --> Wallpaper[static wallpaper]
+    Core --> Appearance[light/dark mode]
+    Core --> Cursors[system cursors]
+    Journal[state-journal] -.per-module journals.-> Core
 ```
 
 Decisions are recorded in [docs/adr](docs/adr).
@@ -75,8 +87,12 @@ Decisions are recorded in [docs/adr](docs/adr).
 ## Measuring resource use
 
 Start Veneer, leave it idle in the tray, then run
-`powershell -File scripts/measure.ps1 -Seconds 60` (CPU and memory of the
-process). Results are not yet published; no idle numbers should be assumed.
+`powershell -File scripts/measure.ps1 -Seconds 60` (process CPU, working set,
+and private memory). Run a separate sample while applying/reverting themes to
+record load behaviour. Results are not yet published: this environment cannot
+launch the Windows desktop app, so no idle or load numbers are claimed.
+The requested before/after GIF also needs capture from a real Windows session;
+do not treat a UI mockup as evidence that DWM/global changes were applied.
 
 ## Current limitations
 
@@ -88,6 +104,15 @@ process). Results are not yet published; no idle numbers should be assumed.
   keeps the frame styled if the wallpaper fails; `error` rolls everything
   back. Crash recovery is covered by tests with a fake backend, not yet by
   killing the real app.
+- Appearance: optional `appearance.apps` and `appearance.system` values
+  (`"light"`/`"dark"`), applied through the per-user Personalize registry
+  values and `WM_SETTINGCHANGE`. This is best-effort because Windows does not
+  promise those values as a stable public setting API; a future release may
+  ignore them. Use `"unsupported": "warn"` (the example default) to keep other
+  theme parts working if the setting is refused.
+- Cursors: optional `cursors` map from system cursor role to an absolute `.cur`
+  or `.ani` path. Revert reloads the configured cursor scheme via
+  `SPI_SETCURSORS`; cursor replacement is session-wide and not per-monitor.
 - Themes apply end to end only to Veneer's own window (one-click apply/revert
   in the preview panel). Other applications' windows are not styled.
 - Closing the window hides it to the tray; use the tray's "Esci" to quit (this
@@ -95,12 +120,13 @@ process). Results are not yet published; no idle numbers should be assumed.
   being hidden.
 - DWM color attributes cannot be read back; restore uses the system default.
 - DWM attributes die with the window, so a crash needs no recovery for them;
-  the journal exists for global changes (accent, cursors, wallpaper) that are
-  not wired in yet. Window handle reuse is not yet guarded against.
-- Global display filters and animated desktop wallpapers require a separate
-  feasibility decision; the documented wallpaper API supports static images
-  and slideshows, not an arbitrary animated desktop renderer.
+  wallpaper, appearance, and cursor modules use separate journal files and
+  attempt recovery at startup. Window handle reuse is not yet guarded against.
+- Global display filters and animated desktop wallpapers are not offered:
+  no supported API provides an arbitrary full-screen filter or an animated
+  desktop renderer.
 - DWM attributes are per-window. Support and appearance vary by Windows build;
   no support for styling arbitrary third-party windows is assumed.
-- CPU/RAM figures are not yet measured or published, the installer is not
-  signed, and there is no auto-update or multi-monitor behaviour testing.
+- CPU/RAM figures and a real before/after GIF are not yet captured. The
+  installer is not signed, and there is no auto-update or multi-monitor
+  behaviour testing.

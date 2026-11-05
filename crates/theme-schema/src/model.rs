@@ -18,6 +18,68 @@ pub struct Theme {
     /// Global (not per-window): applied when the theme is applied, undone when
     /// it is reverted or replaced by a theme without one.
     pub wallpaper: Option<Wallpaper>,
+    /// Global: light/dark mode of apps and of the system UI (taskbar, Start).
+    pub appearance: Option<Appearance>,
+    /// Global: replaces system mouse cursors with `.cur`/`.ani` files.
+    pub cursors: Option<Cursors>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Appearance {
+    pub apps: Option<ColorMode>,
+    pub system: Option<ColorMode>,
+}
+
+impl Appearance {
+    pub fn is_empty(&self) -> bool {
+        self.apps.is_none() && self.system.is_none()
+    }
+}
+
+/// Absolute paths to `.cur` or `.ani` files, one per cursor role.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Cursors {
+    pub arrow: Option<String>,
+    pub ibeam: Option<String>,
+    pub wait: Option<String>,
+    pub app_starting: Option<String>,
+    pub hand: Option<String>,
+    pub help: Option<String>,
+    pub cross: Option<String>,
+    pub no: Option<String>,
+    pub size_all: Option<String>,
+    pub size_ns: Option<String>,
+    pub size_we: Option<String>,
+    pub size_nesw: Option<String>,
+    pub size_nwse: Option<String>,
+    pub up_arrow: Option<String>,
+}
+
+impl Cursors {
+    /// `(role, path)` for every cursor the theme sets; roles use the schema's camelCase names.
+    pub fn entries(&self) -> Vec<(&'static str, &str)> {
+        [
+            ("arrow", &self.arrow),
+            ("ibeam", &self.ibeam),
+            ("wait", &self.wait),
+            ("appStarting", &self.app_starting),
+            ("hand", &self.hand),
+            ("help", &self.help),
+            ("cross", &self.cross),
+            ("no", &self.no),
+            ("sizeAll", &self.size_all),
+            ("sizeNs", &self.size_ns),
+            ("sizeWe", &self.size_we),
+            ("sizeNesw", &self.size_nesw),
+            ("sizeNwse", &self.size_nwse),
+            ("upArrow", &self.up_arrow),
+        ]
+        .into_iter()
+        .filter_map(|(role, path)| path.as_deref().map(|p| (role, p)))
+        .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

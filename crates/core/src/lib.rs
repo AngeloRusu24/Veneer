@@ -7,6 +7,7 @@
 use std::{collections::HashSet, fmt};
 
 pub mod applier;
+pub mod setting;
 pub mod wallpaper;
 
 use serde::Serialize;
@@ -32,12 +33,14 @@ pub enum ApplyError {
     Unsupported(Vec<String>),
     /// The wallpaper could not be set and the theme's policy is `error`.
     Wallpaper(String),
+    /// A global setting (appearance, cursors) failed and the policy is `error`.
+    Setting(String),
 }
 
 impl fmt::Display for ApplyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Wallpaper(reason) => write!(f, "{reason}"),
+            Self::Wallpaper(reason) | Self::Setting(reason) => write!(f, "{reason}"),
             Self::Theme(e) => write!(f, "{e}"),
             Self::UnknownBuild => f.write_str("could not detect the Windows version"),
             Self::BuildTooOld { required, running } => write!(

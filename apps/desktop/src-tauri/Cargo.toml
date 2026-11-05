@@ -15,6 +15,7 @@ veneer-ipc = { path = "../../../crates/ipc" }
 veneer-rule-engine = { path = "../../../crates/rule-engine" }
 veneer-state-journal = { path = "../../../crates/state-journal" }
 veneer-windows-platform = { path = "../../../crates/windows-platform" }
+tauri-plugin-dialog = "2"
 tracing = "0.1"
 
 [features]

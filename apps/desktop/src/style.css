@@ -76,7 +76,9 @@ h1 { margin-bottom: 13px; font-family: "Segoe UI", sans-serif; font-size: clamp(
 .path-input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #2c2c36; border-radius: 8px; background: #14141a; color: #e8eaf0; font: 12px Consolas, monospace; }
 .autostart { display: flex; align-items: center; gap: 8px; margin: 0 0 28px; font-size: 13px; color: #c9ccd6; }
 .theme-input { width: 100%; min-height: 220px; box-sizing: border-box; padding: 12px; border: 1px solid #2c2c36; border-radius: 8px; background: #14141a; color: #e8eaf0; font: 12px/1.5 Consolas, monospace; resize: vertical; }
-.actions { display: flex; gap: 8px; margin: 12px 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin: 12px 0; }
+.actions label { display: flex; flex-direction: column; gap: 5px; color: #a2a3ad; font-size: 10px; }
+.actions select { padding: 8px 10px; border: 1px solid #3b3650; border-radius: 6px; background: #1c1c24; color: #e8eaf0; }
 .actions button { padding: 8px 14px; border: 1px solid #3b3650; border-radius: 6px; background: #1c1c24; color: #e8eaf0; cursor: pointer; }
 .actions button.primary { background: #5b4bd6; border-color: #5b4bd6; }
 .actions button:disabled { opacity: .5; cursor: default; }

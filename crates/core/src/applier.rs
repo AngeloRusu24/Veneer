@@ -9,19 +9,29 @@ use veneer_windows_platform::backend::{FrameBackend, WallpaperBackend};
 
 use crate::{
     ApplyError, ApplyReport, Controller, RevertReport,
+    setting::{SettingController, SettingRevert},
     wallpaper::{WallpaperController, WallpaperRevert},
 };
+use veneer_theme_schema::Theme;
+use veneer_windows_platform::backend::Settings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum WallpaperStatus {
-    /// The theme has no wallpaper and none was active.
+pub enum ChangeStatus {
+    /// The theme asks for nothing here and nothing was active.
     NotRequested,
     Applied,
-    /// The theme has no wallpaper, so the previous theme's one was undone.
+    /// The theme asks for nothing here, so the previous theme's change was undone.
     Reverted,
-    /// Could not be set; the rest of the theme is applied (policy `warn`).
+    /// Could not be changed; the rest of the theme is applied (policy `warn`).
     Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingReport {
+    pub name: String,
+    pub status: ChangeStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -29,7 +39,8 @@ pub enum WallpaperStatus {
 pub struct ThemeReport {
     #[serde(flatten)]
     pub frame: ApplyReport,
-    pub wallpaper: WallpaperStatus,
+    pub wallpaper: ChangeStatus,
+    pub settings: Vec<SettingReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,6 +48,17 @@ pub struct ThemeReport {
 pub struct ThemeRevert {
     pub frame: RevertReport,
     pub wallpaper: WallpaperRevert,
+    pub settings: Vec<SettingRevert>,
+}
+
+/// A simple global setting driven by a theme section.
+#[derive(Debug)]
+struct Slot {
+    name: &'static str,
+    select: fn(&Theme) -> Option<Settings>,
+    /// `None` when the journal could not be opened: changes are then refused
+    /// rather than made without a way back.
+    controller: Option<SettingController>,
 }
 
 #[derive(Debug)]
@@ -45,17 +67,38 @@ pub struct ThemeApplier<F, W> {
     /// `None` when the journal could not be opened: wallpaper changes are then
     /// refused rather than made without a way back.
     wallpaper: Option<WallpaperController<W>>,
+    slots: Vec<Slot>,
 }
 
 impl<F: FrameBackend, W: WallpaperBackend> ThemeApplier<F, W> {
     pub fn new(frames: Controller<F>, wallpaper: Option<WallpaperController<W>>) -> Self {
-        Self { frames, wallpaper }
+        Self {
+            frames,
+            wallpaper,
+            slots: Vec::new(),
+        }
     }
 
-    /// Applies the window-frame part, then the wallpaper. Applying a theme
-    /// replaces the previous one completely, wallpaper included.
+    /// Registers a global setting (for example appearance or cursors).
+    #[must_use]
+    pub fn with_setting(
+        mut self,
+        name: &'static str,
+        select: fn(&Theme) -> Option<Settings>,
+        controller: Option<SettingController>,
+    ) -> Self {
+        self.slots.push(Slot {
+            name,
+            select,
+            controller,
+        });
+        self
+    }
+
+    /// Applies the window-frame part, then the wallpaper and the global
+    /// settings. Applying a theme replaces the previous one completely.
     ///
-    /// With policy `error`, a wallpaper failure rolls the frame back and
+    /// With policy `error`, any global failure rolls everything back and
     /// returns an error; with `warn` it is reported and the rest stays applied.
     pub fn apply(
         &mut self,
@@ -66,32 +109,85 @@ impl<F: FrameBackend, W: WallpaperBackend> ThemeApplier<F, W> {
     ) -> Result<ThemeReport, ApplyError> {
         let theme = parse_theme(theme_json)?;
         let mut frame = self.frames.apply_theme(window, theme_json, context, now)?;
+        let strict = theme.unsupported == UnsupportedPolicy::Error;
 
         let wallpaper = match &theme.wallpaper {
             Some(wallpaper) => match self.set_wallpaper(Path::new(&wallpaper.path)) {
-                Ok(()) => WallpaperStatus::Applied,
-                Err(reason) if theme.unsupported == UnsupportedPolicy::Error => {
-                    self.frames.revert(window);
+                Ok(()) => ChangeStatus::Applied,
+                Err(reason) if strict => {
+                    let reason = self.rollback_failures(window, reason);
                     return Err(ApplyError::Wallpaper(reason));
                 }
                 Err(reason) => {
                     frame.warnings.push(reason);
-                    WallpaperStatus::Failed
+                    ChangeStatus::Failed
                 }
             },
             None => match self.wallpaper.as_mut().map(WallpaperController::revert) {
                 Some(result) if !result.failed.is_empty() => {
-                    frame.warnings.push(format!(
+                    let reason = format!(
                         "sfondo precedente non ripristinato: {}",
                         result.failed.join("; ")
-                    ));
-                    WallpaperStatus::Failed
+                    );
+                    if strict {
+                        let reason = self.rollback_failures(window, reason);
+                        return Err(ApplyError::Wallpaper(reason));
+                    }
+                    frame.warnings.push(reason);
+                    ChangeStatus::Failed
                 }
-                Some(result) if result.was_changed => WallpaperStatus::Reverted,
-                _ => WallpaperStatus::NotRequested,
+                Some(result) if result.was_changed => ChangeStatus::Reverted,
+                _ => ChangeStatus::NotRequested,
             },
         };
-        Ok(ThemeReport { frame, wallpaper })
+
+        let mut settings = Vec::with_capacity(self.slots.len());
+        for index in 0..self.slots.len() {
+            let slot = &mut self.slots[index];
+            let name = slot.name;
+            let desired = (slot.select)(&theme);
+            let outcome = match (desired, slot.controller.as_mut()) {
+                (Some(desired), Some(controller)) => controller
+                    .set(&desired)
+                    .map(|()| ChangeStatus::Applied)
+                    .map_err(|reason| format!("{name}: {reason}")),
+                (Some(_), None) => Err(format!("{name} non disponibile: journal non aperto")),
+                (None, Some(controller)) => {
+                    let result = controller.revert();
+                    if !result.failed.is_empty() {
+                        Err(format!(
+                            "{name} precedente non ripristinato: {}",
+                            result.failed.join("; ")
+                        ))
+                    } else if result.was_changed {
+                        Ok(ChangeStatus::Reverted)
+                    } else {
+                        Ok(ChangeStatus::NotRequested)
+                    }
+                }
+                (None, None) => Ok(ChangeStatus::NotRequested),
+            };
+            let status = match outcome {
+                Ok(status) => status,
+                Err(reason) if strict => {
+                    let reason = self.rollback_failures(window, reason);
+                    return Err(ApplyError::Setting(reason));
+                }
+                Err(reason) => {
+                    frame.warnings.push(reason);
+                    ChangeStatus::Failed
+                }
+            };
+            settings.push(SettingReport {
+                name: name.to_owned(),
+                status,
+            });
+        }
+        Ok(ThemeReport {
+            frame,
+            wallpaper,
+            settings,
+        })
     }
 
     fn set_wallpaper(&mut self, path: &Path) -> Result<(), String> {
@@ -102,16 +198,58 @@ impl<F: FrameBackend, W: WallpaperBackend> ThemeApplier<F, W> {
             .map_err(|error| error.to_string())
     }
 
+    fn rollback_failures(&mut self, window: isize, reason: String) -> String {
+        let reverted = self.revert(window);
+        let mut failures = reverted
+            .frame
+            .failed
+            .into_iter()
+            .map(|item| format!("cornice {} ({})", item.property, item.hresult))
+            .collect::<Vec<_>>();
+        failures.extend(
+            reverted
+                .wallpaper
+                .failed
+                .into_iter()
+                .map(|item| format!("sfondo: {item}")),
+        );
+        for setting in reverted.settings {
+            failures.extend(
+                setting
+                    .failed
+                    .into_iter()
+                    .map(|item| format!("{}: {item}", setting.name)),
+            );
+        }
+        if failures.is_empty() {
+            reason
+        } else {
+            format!("{reason}; rollback incompleto: {}", failures.join("; "))
+        }
+    }
+
     pub fn revert(&mut self, window: isize) -> ThemeRevert {
         ThemeRevert {
             frame: self.frames.revert(window),
             wallpaper: self.revert_wallpaper(),
+            settings: self.revert_settings(),
         }
     }
 
-    /// Undoes every style and the wallpaper; used when the app exits.
-    pub fn revert_all(&mut self) -> (Vec<RevertReport>, WallpaperRevert) {
-        (self.frames.revert_all(), self.revert_wallpaper())
+    /// Undoes every style, the wallpaper and the settings; used on exit.
+    pub fn revert_all(&mut self) -> (Vec<RevertReport>, WallpaperRevert, Vec<SettingRevert>) {
+        (
+            self.frames.revert_all(),
+            self.revert_wallpaper(),
+            self.revert_settings(),
+        )
+    }
+
+    fn revert_settings(&mut self) -> Vec<SettingRevert> {
+        self.slots
+            .iter_mut()
+            .filter_map(|slot| slot.controller.as_mut().map(SettingController::revert))
+            .collect()
     }
 
     fn revert_wallpaper(&mut self) -> WallpaperRevert {
@@ -131,7 +269,7 @@ mod tests {
 
     use veneer_state_journal::Journal;
     use veneer_windows_platform::{
-        backend::{ApplyOutcome, MonitorWallpaper},
+        backend::{ApplyOutcome, MonitorWallpaper, SettingBackend, Snapshot},
         plan::{Failure, Plan},
     };
 
@@ -175,6 +313,38 @@ mod tests {
         fn restore(&mut self, snapshot: &[MonitorWallpaper]) -> Vec<String> {
             self.current = snapshot[0].path.clone();
             Vec::new()
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct Global {
+        state: std::sync::Arc<std::sync::Mutex<String>>,
+        fail: bool,
+    }
+
+    impl SettingBackend for Global {
+        fn capture(&mut self) -> Result<Snapshot, String> {
+            Ok(vec![(
+                "mode".into(),
+                Some(self.state.lock().unwrap().clone()),
+            )])
+        }
+
+        fn apply(&mut self, desired: &[(String, String)]) -> Result<(), String> {
+            if self.fail {
+                return Err("denied".into());
+            }
+            *self.state.lock().unwrap() = desired[0].1.clone();
+            Ok(())
+        }
+
+        fn restore(&mut self, snapshot: &Snapshot) -> Vec<String> {
+            if let Some((_, Some(value))) = snapshot.first() {
+                *self.state.lock().unwrap() = value.clone();
+                Vec::new()
+            } else {
+                vec!["invalid test snapshot".into()]
+            }
         }
     }
 
@@ -241,7 +411,7 @@ mod tests {
             .apply(1, &theme(Some(&env.image), "warn"), &context(), now())
             .unwrap();
         assert_eq!(report.frame.applied, ["colorMode"]);
-        assert_eq!(report.wallpaper, WallpaperStatus::Applied);
+        assert_eq!(report.wallpaper, ChangeStatus::Applied);
         assert_eq!(current(&mut a), env.image.display().to_string());
 
         let undone = a.revert(1);
@@ -256,11 +426,11 @@ mod tests {
         a.apply(1, &theme(Some(&env.image), "warn"), &context(), now())
             .unwrap();
         let report = a.apply(1, &theme(None, "warn"), &context(), now()).unwrap();
-        assert_eq!(report.wallpaper, WallpaperStatus::Reverted);
+        assert_eq!(report.wallpaper, ChangeStatus::Reverted);
         assert_eq!(current(&mut a), r"C:\orig.png");
 
         let again = a.apply(1, &theme(None, "warn"), &context(), now()).unwrap();
-        assert_eq!(again.wallpaper, WallpaperStatus::NotRequested);
+        assert_eq!(again.wallpaper, ChangeStatus::NotRequested);
     }
 
     #[test]
@@ -270,7 +440,7 @@ mod tests {
         let report = a
             .apply(1, &theme(Some(&env.image), "warn"), &context(), now())
             .unwrap();
-        assert_eq!(report.wallpaper, WallpaperStatus::Failed);
+        assert_eq!(report.wallpaper, ChangeStatus::Failed);
         assert_eq!(report.frame.applied, ["colorMode"]);
         assert!(report.frame.warnings.iter().any(|w| w.contains("denied")));
         assert!(a.frames.is_styled(1));
@@ -288,13 +458,63 @@ mod tests {
     }
 
     #[test]
+    fn applies_and_reverts_theme_appearance_setting() {
+        let env = env();
+        let state = std::sync::Arc::new(std::sync::Mutex::new("light".to_owned()));
+        let (journal, _) = Journal::open(env.dir.path().join("appearance.journal.json")).unwrap();
+        let setting = SettingController::new(
+            "appearance",
+            Global {
+                state: state.clone(),
+                fail: false,
+            },
+            journal,
+        );
+        let mut a = ThemeApplier::<Frames, Wall>::new(Controller::new(Frames, Some(26100)), None)
+            .with_setting("appearance", crate::setting::appearance_of, Some(setting));
+        let json = theme(None, "warn")
+            .replace("\"rules\"", "\"appearance\":{\"apps\":\"dark\"},\"rules\"");
+        let report = a.apply(1, &json, &context(), now()).unwrap();
+        assert_eq!(*state.lock().unwrap(), "dark");
+        assert_eq!(report.settings[0].status, ChangeStatus::Applied);
+
+        let reverted = a.revert(1);
+        assert_eq!(*state.lock().unwrap(), "light");
+        assert!(reverted.settings[0].failed.is_empty());
+        assert!(reverted.settings[0].was_changed);
+    }
+
+    #[test]
+    fn error_policy_rolls_back_frame_when_a_setting_fails() {
+        let env = env();
+        let state = std::sync::Arc::new(std::sync::Mutex::new("light".to_owned()));
+        let (journal, _) = Journal::open(env.dir.path().join("appearance.journal.json")).unwrap();
+        let setting = SettingController::new(
+            "appearance",
+            Global {
+                state: state.clone(),
+                fail: true,
+            },
+            journal,
+        );
+        let mut a = ThemeApplier::<Frames, Wall>::new(Controller::new(Frames, Some(26100)), None)
+            .with_setting("appearance", crate::setting::appearance_of, Some(setting));
+        let json = theme(None, "error")
+            .replace("\"rules\"", "\"appearance\":{\"apps\":\"dark\"},\"rules\"");
+        let error = a.apply(1, &json, &context(), now()).unwrap_err();
+        assert!(matches!(error, ApplyError::Setting(_)));
+        assert!(!a.frames.is_styled(1));
+        assert_eq!(*state.lock().unwrap(), "light");
+    }
+
+    #[test]
     fn without_a_journal_the_wallpaper_is_refused_but_the_frame_applies() {
         let env = env();
         let mut a = applier(&env, false, false);
         let report = a
             .apply(1, &theme(Some(&env.image), "warn"), &context(), now())
             .unwrap();
-        assert_eq!(report.wallpaper, WallpaperStatus::Failed);
+        assert_eq!(report.wallpaper, ChangeStatus::Failed);
         assert!(a.frames.is_styled(1));
     }
 
@@ -313,7 +533,7 @@ mod tests {
         let mut a = applier(&env, false, true);
         a.apply(1, &theme(Some(&env.image), "warn"), &context(), now())
             .unwrap();
-        let (frames, wallpaper) = a.revert_all();
+        let (frames, wallpaper, _) = a.revert_all();
         assert_eq!(frames.len(), 1);
         assert!(wallpaper.was_changed);
         assert_eq!(current(&mut a), r"C:\orig.png");

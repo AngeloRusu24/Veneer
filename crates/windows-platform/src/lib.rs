@@ -8,7 +8,11 @@ pub mod backend;
 pub mod plan;
 
 #[cfg(windows)]
+pub mod appearance;
+#[cfg(windows)]
 pub mod autostart;
+#[cfg(windows)]
+pub mod cursors;
 #[cfg(windows)]
 pub mod dwm;
 #[cfg(windows)]
