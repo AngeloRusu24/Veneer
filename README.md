@@ -121,7 +121,9 @@ do not treat a UI mockup as evidence that DWM/global changes were applied.
 - DWM color attributes cannot be read back; restore uses the system default.
 - DWM attributes die with the window, so a crash needs no recovery for them;
   wallpaper, appearance, and cursor modules use separate journal files and
-  attempt recovery at startup. Window handle reuse is not yet guarded against.
+  attempt recovery at startup. A restore is skipped when the window no longer
+  exists or its handle now belongs to a different thread; a handle reused by
+  another window on the same thread is not detected.
 - Global display filters and animated desktop wallpapers are not offered:
   no supported API provides an arbitrary full-screen filter or an animated
   desktop renderer.

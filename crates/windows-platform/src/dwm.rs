@@ -12,6 +12,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
     DWMWINDOWATTRIBUTE, DwmGetWindowAttribute, DwmSetWindowAttribute,
 };
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow};
 
 use crate::backend::{ApplyOutcome, FrameBackend};
 use crate::plan::{COLOR_DEFAULT, DwmAttribute, Failure, Operation, Plan};
@@ -19,7 +20,16 @@ use crate::plan::{COLOR_DEFAULT, DwmAttribute, Failure, Operation, Plan};
 /// Applies plans to real windows and remembers what it overwrote, per window.
 #[derive(Debug, Default)]
 pub struct DwmBackend {
-    frames: HashMap<isize, AppliedFrame>,
+    frames: HashMap<isize, TrackedFrame>,
+}
+
+#[derive(Debug)]
+struct TrackedFrame {
+    /// Thread that owned the window when the frame was applied. Handles can be
+    /// reused after a window is destroyed; checking the owner before writing
+    /// avoids restoring onto an unrelated window.
+    owner_thread: u32,
+    frame: AppliedFrame,
 }
 
 impl FrameBackend for DwmBackend {
@@ -33,16 +43,40 @@ impl FrameBackend for DwmBackend {
             failed: frame.failed.clone(),
         };
         if !frame.applied.is_empty() {
-            self.frames.insert(window, frame);
+            self.frames.insert(
+                window,
+                TrackedFrame {
+                    owner_thread: owner_thread(window),
+                    frame,
+                },
+            );
         }
         outcome
     }
 
     fn restore(&mut self, window: isize) -> Vec<Failure> {
-        self.frames
-            .remove(&window)
-            .map_or_else(Vec::new, |frame| frame.restore(window))
+        let Some(tracked) = self.frames.remove(&window) else {
+            return Vec::new();
+        };
+        if !is_same_window(window, tracked.owner_thread) {
+            // The window is gone (its DWM attributes went with it) or the handle
+            // now belongs to another window: writing would touch the wrong one.
+            return Vec::new();
+        }
+        tracked.frame.restore(window)
     }
+}
+
+fn owner_thread(window: isize) -> u32 {
+    // SAFETY: an invalid handle is rejected by the call and yields 0; the
+    // optional process-id out pointer is not requested.
+    unsafe { GetWindowThreadProcessId(hwnd_from_raw(window), None) }
+}
+
+fn is_same_window(window: isize, expected_thread: u32) -> bool {
+    // SAFETY: IsWindow only inspects the handle and never dereferences it.
+    unsafe { IsWindow(Some(hwnd_from_raw(window))) }.as_bool()
+        && owner_thread(window) == expected_thread
 }
 
 /// The result of applying a [`Plan`] to one window.

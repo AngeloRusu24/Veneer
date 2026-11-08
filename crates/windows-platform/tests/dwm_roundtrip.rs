@@ -6,7 +6,8 @@
 
 use veneer_theme_schema::{Backdrop, ColorMode, CornerPreference, Rgb, WindowFrame};
 use veneer_windows_platform::{
-    dwm::{apply_plan, read_attribute},
+    backend::FrameBackend,
+    dwm::{DwmBackend, apply_plan, read_attribute},
     os::build_number,
     plan::{DwmAttribute, colorref, plan_window_frame},
 };
@@ -123,6 +124,20 @@ fn invalid_window_reports_failures_instead_of_panicking() {
     let applied = apply_plan(0x1, &plan);
     assert!(applied.applied.is_empty());
     assert_eq!(applied.failed.len(), plan.operations.len());
+}
+
+#[test]
+fn restore_after_window_is_destroyed_is_a_no_op() {
+    let build = build_number().unwrap();
+    let plan = plan_window_frame(&frame(), build);
+    let mut backend = DwmBackend::default();
+    let handle = {
+        let window = TestWindow::new();
+        let outcome = backend.apply(window.0, &plan);
+        assert!(!outcome.applied.is_empty());
+        window.0
+    };
+    assert!(backend.restore(handle).is_empty());
 }
 
 fn is_color(attribute: DwmAttribute) -> bool {
